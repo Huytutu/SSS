@@ -1,0 +1,5 @@
+torch>=2.1
+transformers>=4.46
+accelerate>=0.30
+pillow>=10.0
+qwen-vl-utils>=0.0.8
