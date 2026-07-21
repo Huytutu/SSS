@@ -151,13 +151,32 @@ class GRITClient:
         max_prefix_chars: int = 512,
         trace_dir: Optional[str] = None,
         trace_file: str = "grit_trace.jsonl",
+        load_in_4bit: bool = False,
     ):
-        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_id,
-            torch_dtype=torch_dtype,
-            device_map="auto",
-            attn_implementation="flash_attention_2",
-        ).eval()
+        model_kwargs = {}
+        if device == "cpu":
+            model_kwargs["device_map"] = "cpu"
+            model_kwargs["torch_dtype"] = torch.bfloat16
+        else:
+            model_kwargs["device_map"] = f"cuda:{device}" if isinstance(device, int) or (isinstance(device, str) and device.isdigit()) else device
+            if load_in_4bit:
+                model_kwargs["load_in_4bit"] = True
+            else:
+                model_kwargs["torch_dtype"] = torch_dtype
+            
+        try:
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_id,
+                attn_implementation="flash_attention_2",
+                **model_kwargs
+            ).eval()
+        except ImportError:
+            print("flash_attn is not installed. Falling back to sdpa attention implementation for GRITClient...")
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_id,
+                attn_implementation="sdpa",
+                **model_kwargs
+            ).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
         self.max_prefix_chars = int(max_prefix_chars)
         self._trace_fp = None
@@ -224,11 +243,13 @@ class GRITClient:
         img_inputs, vid_inputs = process_vision_info(messages)
         inputs = self.processor(text=[chat_text], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(self.model.device)
 
-        gen_cfg = self.model.generation_config
+        from copy import copy
+        gen_cfg = copy(self.model.generation_config)
         gen_cfg.max_new_tokens = max_new_tokens
-        gen_cfg.temperature = 0.0
-        gen_cfg.top_k = 1
-        gen_cfg.top_p = 0.0
+        gen_cfg.do_sample = False
+        gen_cfg.temperature = None
+        gen_cfg.top_k = None
+        gen_cfg.top_p = None
         stopper = _EndsWithAny(self.processor.tokenizer, ["</answer>"], start_len=int(inputs.input_ids.shape[1]))
         gen_ids = self.model.generate(**inputs, generation_config=gen_cfg, stopping_criteria=StoppingCriteriaList([stopper]), use_cache=True)
         out = self.processor.batch_decode(gen_ids[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
