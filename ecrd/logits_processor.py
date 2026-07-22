@@ -5,6 +5,7 @@ import traceback
 import torch
 from transformers import LogitsProcessor, PreTrainedTokenizerBase
 from .evidence import Evidence
+from .triggers import _is_word_start, _looks_critical
 
 EPS = 1e-30
 
@@ -72,6 +73,9 @@ class ECRDLogitsProcessor(LogitsProcessor):
         mix_reweight: Optional[int] = None,
         tokenizer: Optional[PreTrainedTokenizerBase] = None,
         neg_inf_val: float = -1e9,
+        collect_calibration_log: bool = False,
+        calib_min_k: int = 2,
+        calib_cooldown: int = 5,
     ):
         super().__init__()
         self.scorer = scorer
@@ -105,6 +109,34 @@ class ECRDLogitsProcessor(LogitsProcessor):
         self._question = None
         self._image = None
         self.last_info: List[Dict[str, Any]] = []
+
+        # Optional: collect gate-eligible (step, cand_mix_probs, chosen_id) records for
+        # building a Conformal-ECRD calibration set. Independent of the GRIT trigger's
+        # own cooldown, since we want every step a CP-trigger *could* fire on, not only
+        # the ones the currently-active trigger happened to fire on.
+        self.collect_calibration_log = bool(collect_calibration_log)
+        self.calib_log: List[Dict[str, Any]] = []
+        self._calib_min_k = int(calib_min_k)
+        self._calib_cooldown = int(calib_cooldown)
+        self._calib_last_fire_step = -999999
+
+        # Counts every time the trigger fires and the GRIT decider is actually called,
+        # for comparing invocation rate across trigger implementations (gap vs conformal).
+        self.grit_invocations = 0
+
+    def _calib_gate_eligible(self, info: Dict[str, Any]) -> bool:
+        if info["k"] < self._calib_min_k:
+            return False
+        if info["step"] - self._calib_last_fire_step < self._calib_cooldown:
+            return False
+        cand_ids = info["cand_ids"]
+        if self.tokenizer is None or len(cand_ids) == 0:
+            return False
+        try:
+            tok = self.tokenizer.convert_ids_to_tokens(int(cand_ids[0]))
+        except Exception:
+            return False
+        return _is_word_start(tok) or _looks_critical(tok)
 
     def set_grit_runtime(self, *, hook, trigger, evidence_pool, question: str = "", image: Any = None):
         self._grit_hook = hook
@@ -166,6 +198,7 @@ class ECRDLogitsProcessor(LogitsProcessor):
                 step=self._step,
                 k=k_i,
                 cand_ids=cand_idx.detach().cpu(),
+                cand_mix_probs=eff_probs[cand_idx].detach().cpu(),
                 base_top=float(p_sorted[0].item()),
                 p1=p1,
                 p2=p2,
@@ -179,6 +212,7 @@ class ECRDLogitsProcessor(LogitsProcessor):
             if (self._grit_hook is not None) and (self._trigger is not None):
                 try:
                     if self._trigger(info, input_ids[i:i + 1], self.tokenizer):
+                        self.grit_invocations += 1
                         candidates = []
                         for tid in cand_idx.tolist():
                             try:
@@ -237,6 +271,16 @@ class ECRDLogitsProcessor(LogitsProcessor):
                     traceback.print_exc()
                     if self.debug and self._step < self.debug_max:
                         print(f"[ECRD-GRIT] exception: {ex}")
+
+            if self.collect_calibration_log and self._calib_gate_eligible(info):
+                self._calib_last_fire_step = info["step"]
+                chosen_id = int(scores[i, :].argmax().item())
+                self.calib_log.append({
+                    "step": info["step"],
+                    "cand_ids": info["cand_ids"].tolist(),
+                    "cand_mix_probs": info["cand_mix_probs"].tolist(),
+                    "chosen_id": chosen_id,
+                })
 
             if self.debug and self._step < self.debug_max:
                 mb_c = float(probs_i[cand_idx].sum().item())

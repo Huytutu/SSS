@@ -4,6 +4,7 @@ import re
 import math
 import argparse
 import datetime
+import numpy as np
 from tqdm import tqdm
 from PIL import Image
 import torch
@@ -63,18 +64,26 @@ def parse_multi_choice_prediction(text: str) -> str:
     ans_match = re.search(r"<answer>\s*([A-H])\b", text, flags=re.I)
     if ans_match:
         return ans_match.group(1).upper()
-    
+
     ans_char = re.search(r"Answer:\s*([A-H])\b", text, flags=re.I)
     if ans_char:
         return ans_char.group(1).upper()
-    
+
     ans_last = re.search(r"\b([A-H])\b", text[-20:], flags=re.I)
     if ans_last:
         return ans_last.group(1).upper()
     return ""
 
+def parse_free_response_prediction(text: str) -> str:
+    # Reasoning questions without lettered choices (e.g. numeric answers) still use
+    # the same "<answer>...</answer>" prompt format, just without the A-H restriction.
+    ans_match = re.search(r"<answer>\s*(.*?)\s*</answer>", text, flags=re.I | re.S)
+    if ans_match:
+        return ans_match.group(1).strip()
+    return text.strip()
+
 @torch.inference_mode()
-def local_grade_perception(model, processor, question: str, model_answer: str, ground_truth: str) -> bool:
+def local_grade_answer(model, processor, question: str, model_answer: str, ground_truth: str) -> bool:
     if not model_answer.strip():
         return False
     
@@ -101,21 +110,254 @@ Is the model's answer correct and consistent with the correct answer? Respond wi
         return True
     return False
 
+# --- Budget-forcing (reasoning-length control), following the RH-Bench reference
+# implementation: github.com/MLRM-Halu/MLRM-Halu/blob/main/length_control/budget_forcing.py
+
+THINK_PROMPT_SUFFIX = (
+    " You FIRST think about the reasoning process as an internal monologue and "
+    "then provide the final answer. The reasoning process MUST BE enclosed "
+    "within <think> </think> tags. The final answer MUST BE in <answer> </answer> tags."
+)
+
+def build_think_messages(image, question: str, min_pixels: int, max_pixels: int):
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image, "min_pixels": min_pixels, "max_pixels": max_pixels},
+                {"type": "text", "text": question + THINK_PROMPT_SUFFIX},
+            ],
+        }
+    ]
+
+def extract_think(text: str) -> str:
+    m = re.search(r"<think>(.*?)</think>", text, flags=re.S | re.I)
+    return (m.group(1) if m else text).strip()
+
+def build_forced_answer_messages(image, question: str, truncated_think: str, min_pixels: int, max_pixels: int):
+    prompt = (
+        f"{question}\n<think>\n{truncated_think}\n</think>\n\n"
+        "So the final answer is (put it in <answer>...</answer>):"
+    )
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image, "min_pixels": min_pixels, "max_pixels": max_pixels},
+                {"type": "text", "text": prompt},
+            ],
+        }
+    ]
+
+def generate_once(model, processor, messages, max_new_tokens: int, proc=None, gen_config=None) -> str:
+    chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    img_inputs, vid_inputs = process_vision_info(messages)
+    inputs = processor(text=[chat], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(model.device)
+    if proc is not None:
+        gen = model.generate(
+            **inputs,
+            generation_config=gen_config,
+            max_new_tokens=max_new_tokens,
+            logits_processor=LogitsProcessorList([proc]),
+        )
+    else:
+        gen = model.generate(**inputs, do_sample=False, max_new_tokens=max_new_tokens, use_cache=True)
+    return processor.batch_decode(gen[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0].strip()
+
+def generate_response(model, processor, image, question: str, args, proc=None, gen_config=None, think_char_budget=None) -> str:
+    """Runs one full model response for a question.
+
+    think_char_budget=None keeps the original single-shot behavior (one
+    generation call with the answer embedded via <answer> tags).
+
+    A numeric think_char_budget switches to the budget-forcing protocol from
+    the RH-Bench reference implementation: generate a free chain-of-thought,
+    truncate the <think> block to think_char_budget characters, then force a
+    final answer conditioned on only that much visible reasoning. ECRD/GRIT
+    supervision (proc/gen_config) applies to the thinking stage, mirroring how
+    the single-shot mode supervises the whole chain-of-thought; the short
+    forced final-answer stage is left unconstrained, matching the reference
+    script.
+    """
+    if think_char_budget is None:
+        messages = build_messages(image, question, args.min_pixels, args.max_pixels)
+        return generate_once(model, processor, messages, args.max_new_tokens, proc, gen_config)
+
+    think_messages = build_think_messages(image, question, args.min_pixels, args.max_pixels)
+    think_text = generate_once(model, processor, think_messages, args.max_new_tokens, proc, gen_config)
+    truncated_think = extract_think(think_text)[:think_char_budget]
+
+    answer_messages = build_forced_answer_messages(image, question, truncated_think, args.min_pixels, args.max_pixels)
+    return generate_once(model, processor, answer_messages, 128)
+
+def build_ecrd_processor(model, processor, image, question: str, args, grit_client):
+    desc = generate_global_description(model, processor, image, question, args.min_pixels, args.max_pixels)
+    scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
+    scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
+
+    proc = ECRDLogitsProcessor(
+        scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
+        collect_calibration_log=bool(args.collect_calib_log),
+    )
+
+    from ecrd.triggers import MixedGapTrigger, ConformalTrigger
+    if args.trigger == "conformal":
+        if args.q_hat is None:
+            raise ValueError("--trigger conformal requires --q-hat (from scripts/calib/build_calibration.py)")
+        trigger = ConformalTrigger(q_hat=args.q_hat, min_k=2, cooldown=5)
+    else:
+        trigger = MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5)
+
+    def grit_hook_fn(*a, **kw):
+        return grit_client.decide_next_token(*a, **kw)
+
+    proc.set_grit_runtime(hook=grit_hook_fn, trigger=trigger, evidence_pool=scorer, question=question, image=image)
+
+    import copy
+    gen_config = copy.copy(model.generation_config)
+    gen_config.do_sample = False
+    gen_config.temperature = None
+    gen_config.top_p = None
+    gen_config.top_k = None
+    return proc, gen_config
+
+def compute_rh_auc(points) -> float:
+    """RH-AUC exactly as defined in the RH-Bench reference implementation
+    (MLRM-Halu/RH-AUC.py, `auc_smooth`): min-max normalize both perception and
+    reasoning accuracy across a reasoning-length sweep, then trapezoidally
+    integrate perception (y) over reasoning (x). A single evaluation point has
+    no length axis to integrate over, so this needs >=2 sweep points -- unlike
+    the reas_acc * perc_acc rectangle used as a quick single-point stand-in.
+
+    points: list of (perception_accuracy, reasoning_accuracy) tuples, one per
+    reasoning-length budget in the sweep.
+    """
+    if len(points) < 2:
+        raise ValueError("RH-AUC requires at least 2 length-sweep points")
+    points_sorted = sorted(points, key=lambda p: p[1])
+    y = [p[0] for p in points_sorted]
+    x = [p[1] for p in points_sorted]
+    x_min, x_max = min(x), max(x)
+    y_min, y_max = min(y), max(y)
+    x_norm = [(xi - x_min) / (x_max - x_min) for xi in x]
+    y_norm = [(yi - y_min) / (y_max - y_min) for yi in y]
+    return float(np.trapezoid(y_norm, x_norm))
+
+def run_eval_pass(model, processor, dataset, aligned_items, grit_client, args, length_fraction=None):
+    """Evaluates every item once and returns (correct_reason, total_reason,
+    correct_perc, total_perc, details). length_fraction=None reproduces the
+    original single-shot evaluation; a float in [0, 1] runs the budget-forcing
+    protocol at length_fraction * category_max_chars (600 chars for reasoning
+    items, 300 for perception items, per the RH-Bench project page's stated
+    reasoning-length ranges).
+    """
+    details = []
+    correct_reason = total_reason = correct_perc = total_perc = 0
+
+    desc = "Evaluating RH-Bench" if length_fraction is None else f"Evaluating RH-Bench (length_fraction={length_fraction:.2f})"
+    pbar = tqdm(aligned_items, desc=desc)
+    for item in pbar:
+        row = dataset[item["dataset_index"]]
+        image = row["image"]
+
+        category = item["category"]
+        question = item["question"]
+        ground_truth = item["answer"]
+
+        proc, gen_config = (None, None)
+        if args.use_grit:
+            proc, gen_config = build_ecrd_processor(model, processor, image, question, args, grit_client)
+
+        think_char_budget = None
+        if length_fraction is not None:
+            category_max_chars = 600 if category == "reasoning" else 300
+            think_char_budget = round(length_fraction * category_max_chars)
+
+        pred_text = generate_response(model, processor, image, question, args, proc, gen_config, think_char_budget)
+
+        is_correct = False
+        prediction = ""
+        correct_answer_option = ""
+
+        if category == "reasoning":
+            correct_answer_option = get_correct_option(question, ground_truth)
+            if correct_answer_option:
+                prediction = parse_multi_choice_prediction(pred_text)
+                is_correct = (prediction == correct_answer_option)
+            else:
+                # No lettered choices in the question -> free-response (e.g. numeric)
+                # answer, so grade it with the same local judge used for perception.
+                prediction = parse_free_response_prediction(pred_text)
+                is_correct = local_grade_answer(model, processor, question, prediction, ground_truth)
+
+            total_reason += 1
+            if is_correct:
+                correct_reason += 1
+        else:  # perception
+            is_correct = local_grade_answer(model, processor, question, pred_text, ground_truth)
+            prediction = pred_text
+
+            total_perc += 1
+            if is_correct:
+                correct_perc += 1
+
+        details.append({
+            "id": item["id"],
+            "category": category,
+            "question": question,
+            "prediction": prediction,
+            "prediction_raw": pred_text,
+            "ground_truth": ground_truth,
+            "ground_truth_option": correct_answer_option if category == "reasoning" else "",
+            "is_correct": is_correct,
+            "grit_invocations": proc.grit_invocations if args.use_grit else None,
+        })
+
+        if args.collect_calib_log and args.use_grit:
+            with open(args.collect_calib_log, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "question_id": item["id"],
+                    "category": category,
+                    "is_correct": is_correct,
+                    "calib_log": proc.calib_log,
+                }, ensure_ascii=False) + "\n")
+
+        reason_acc = (correct_reason / total_reason * 100) if total_reason > 0 else 0
+        perc_acc = (correct_perc / total_perc * 100) if total_perc > 0 else 0
+        pbar.set_postfix({"reas": f"{reason_acc:.1f}%", "perc": f"{perc_acc:.1f}%"})
+
+    return correct_reason, total_reason, correct_perc, total_perc, details
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="Qwen/Qwen2.5-VL-7B-Instruct")
     ap.add_argument("--use-grit", action="store_true")
     ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
+    ap.add_argument("--trigger", choices=["gap", "conformal"], default="gap",
+                     help="gap = original MixedGapTrigger (uses --delta); conformal = ConformalTrigger (uses --q-hat)")
+    ap.add_argument("--q-hat", type=float, default=None, help="Calibrated threshold for --trigger conformal")
+    ap.add_argument("--collect-calib-log", default=None,
+                     help="If set, append one JSONL record per question (question_id, is_correct, calib_log) to this path")
     ap.add_argument("--load-in-4bit", action="store_true", help="Load base model in 4-bit")
     ap.add_argument("--grit-in-4bit", action="store_true", help="Load GRIT model in 4-bit")
     ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--device", default=None, help="Device to run base model on (e.g., cpu, cuda:0)")
     ap.add_argument("--min-pixels", type=int, default=256*28*28)
     ap.add_argument("--max-pixels", type=int, default=512*28*28)
-    ap.add_argument("--max-new-tokens", type=int, default=512)
-    ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to first N samples")
+    # 512 truncated ~13% of samples mid-reasoning (long math/geometry chains) in an
+    # earlier run; 1024 matches the TreeBench script default and the RH-Bench reference.
+    ap.add_argument("--max-new-tokens", type=int, default=1024)
+    ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to N samples (stratified across categories)")
+    ap.add_argument("--offset", type=int, default=0, help="Skip the first N stratified samples per category before applying --limit (for disjoint calib/test splits)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
+    ap.add_argument("--length-sweep", action="store_true",
+                     help="Compute RH-AUC the paper-accurate way: sweep reasoning-length budgets via "
+                          "budget forcing and trapezoidally integrate perception over reasoning, instead "
+                          "of the single-point reas_acc*perc_acc approximation.")
+    ap.add_argument("--length-fractions", type=float, nargs="+", default=[0.0, 0.25, 0.5, 0.75, 1.0],
+                     help="Fractions of the category-specific max reasoning length (600 chars for "
+                          "reasoning items, 300 for perception items) to sweep when --length-sweep is set.")
     args = ap.parse_args()
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -179,7 +421,16 @@ def main():
             })
 
     if args.limit:
-        aligned_items = aligned_items[:args.limit]
+        # Dataset is stored as one contiguous block of "perception" items followed by
+        # one contiguous block of "reasoning" items, so a plain prefix slice would only
+        # ever sample one category. Split the limit evenly across both categories instead.
+        # --offset skips the first N stratified items per category first, so a later run
+        # can select a disjoint slice (e.g. calibration vs. held-out test) from the same
+        # underlying dataset order.
+        perc_items = [x for x in aligned_items if x["category"] == "perception"][args.offset:]
+        reason_items = [x for x in aligned_items if x["category"] == "reasoning"][args.offset:]
+        half = args.limit // 2
+        aligned_items = perc_items[:half] + reason_items[:args.limit - half]
 
     print(f"Total aligned samples to evaluate: {len(aligned_items)}")
 
@@ -225,173 +476,99 @@ def main():
             grit_device = f"cuda:{grit_device}"
         
         grit_client = GRITClient(
-            model_name=args.grit_model,
+            model_id=args.grit_model,
             device=grit_device,
             load_in_4bit=args.grit_in_4bit
         )
 
-    details = []
-    correct_reason = 0
-    total_reason = 0
-    correct_perc = 0
-    total_perc = 0
-
-    pbar = tqdm(aligned_items, desc="Evaluating RH-Bench")
-    for item in pbar:
-        # Load image from HF dataset row
-        row = dataset[item["dataset_index"]]
-        image = row["image"]
-        
-        category = item["category"]
-        question = item["question"]
-        ground_truth = item["answer"]
-        question_type = item["question_type"]
-
-        # Run model inference
-        if args.use_grit:
-            desc = generate_global_description(model, processor, image, question, args.min_pixels, args.max_pixels)
-            scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
-            scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
-            
-            proc = ECRDLogitsProcessor(scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64)
-            
-            # Setup GRIT decider hook inside ECRD
-            from ecrd.decider import build_grit_trigger
-            trigger = build_grit_trigger(delta=args.delta)
-            
-            # Decider execution config copies the generation config
-            import copy
-            gen_config = copy.copy(model.generation_config)
-            gen_config.do_sample = False
-            gen_config.temperature = None
-            gen_config.top_p = None
-            gen_config.top_k = None
-            
-            def grit_hook_fn(*args, **kwargs):
-                return grit_client.verify_token_candidates(*args, **kwargs)
-            
-            proc.set_grit_runtime(
-                hook=grit_hook_fn,
-                trigger=trigger,
-                evidence_pool=scorer,
-                question=question,
-                image=image
-            )
-            
-            messages = build_messages(image, question, args.min_pixels, args.max_pixels)
-            chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            img_inputs, vid_inputs = process_vision_info(messages)
-            inputs = processor(text=[chat], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(model.device)
-            
-            gen = model.generate(
-                **inputs,
-                generation_config=gen_config,
-                max_new_tokens=args.max_new_tokens,
-                logits_processor=LogitsProcessorList([proc]),
-            )
-        else:
-            messages = build_messages(image, question, args.min_pixels, args.max_pixels)
-            chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            img_inputs, vid_inputs = process_vision_info(messages)
-            inputs = processor(text=[chat], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(model.device)
-            
-            gen = model.generate(
-                **inputs,
-                do_sample=False,
-                max_new_tokens=args.max_new_tokens,
-                use_cache=True,
-            )
-
-        pred_text = processor.batch_decode(gen[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0].strip()
-
-        is_correct = False
-        prediction = ""
-        correct_answer_option = ""
-
-        if category == "reasoning":
-            correct_answer_option = get_correct_option(question, ground_truth)
-            prediction = parse_multi_choice_prediction(pred_text)
-            is_correct = (prediction == correct_answer_option) if correct_answer_option else False
-            
-            total_reason += 1
-            if is_correct:
-                correct_reason += 1
-        else:  # perception
-            # Local judge grading
-            is_correct = local_grade_perception(model, processor, question, pred_text, ground_truth)
-            prediction = pred_text
-            
-            total_perc += 1
-            if is_correct:
-                correct_perc += 1
-
-        details.append({
-            "id": item["id"],
-            "category": category,
-            "question": question,
-            "prediction": prediction,
-            "prediction_raw": pred_text,
-            "ground_truth": ground_truth,
-            "ground_truth_option": correct_answer_option if category == "reasoning" else "",
-            "is_correct": is_correct
-        })
-
-        # Update progress bar description
-        reason_acc = (correct_reason / total_reason * 100) if total_reason > 0 else 0
-        perc_acc = (correct_perc / total_perc * 100) if total_perc > 0 else 0
-        pbar.set_postfix({
-            "reas": f"{reason_acc:.1f}%",
-            "perc": f"{perc_acc:.1f}%"
-        })
-
-    # Calculations for metrics
-    reas_accuracy = correct_reason / total_reason if total_reason > 0 else 0
-    perc_accuracy = correct_perc / total_perc if total_perc > 0 else 0
-    # RH-AUC approximation for single evaluation point: Reas * Perc
-    rh_auc = reas_accuracy * perc_accuracy
-
-    print("\n" + "=" * 54)
-    print("RH-Bench Evaluation Results Summary")
-    print("=" * 54)
-    print(f"Reasoning (Reas)  :   {correct_reason}/{total_reason}   ({reas_accuracy * 100:.2f}%)")
-    print(f"Perception (Perc) :   {correct_perc}/{total_perc}   ({perc_accuracy * 100:.2f}%)")
-    print("-" * 54)
-    print(f"RH-AUC (Rectangle):   {rh_auc:.4f}")
-    print("=" * 54)
-
-    # Save detailed JSON file
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-
     mode = "grit" if args.use_grit else "basic"
     model_name = os.path.basename(args.model).lower()
+
+    if args.length_sweep:
+        length_points = []
+        for frac in args.length_fractions:
+            correct_reason, total_reason, correct_perc, total_perc, details = run_eval_pass(
+                model, processor, dataset, aligned_items, grit_client, args, length_fraction=frac
+            )
+            reas_accuracy = correct_reason / total_reason if total_reason > 0 else 0
+            perc_accuracy = correct_perc / total_perc if total_perc > 0 else 0
+            print(f"[length_fraction={frac:.2f}] Reas={reas_accuracy * 100:.2f}%  Perc={perc_accuracy * 100:.2f}%")
+            length_points.append({
+                "length_fraction": frac,
+                "reasoning": {"correct": correct_reason, "total": total_reason, "accuracy": reas_accuracy},
+                "perception": {"correct": correct_perc, "total": total_perc, "accuracy": perc_accuracy},
+                "details": details,
+            })
+
+        rh_auc = compute_rh_auc([(p["perception"]["accuracy"], p["reasoning"]["accuracy"]) for p in length_points])
+        # Headline Reas/Perc numbers are the full-budget (largest fraction) point, matching
+        # how the ECRD paper's Table 4 reports a single Reas/Perc pair alongside RH-AUC.
+        headline = length_points[-1]
+
+        print("\n" + "=" * 54)
+        print("RH-Bench Evaluation Results Summary (length sweep)")
+        print("=" * 54)
+        print(f"Reasoning (Reas)  :   {headline['reasoning']['accuracy'] * 100:.2f}%  (full-budget point)")
+        print(f"Perception (Perc) :   {headline['perception']['accuracy'] * 100:.2f}%  (full-budget point)")
+        print("-" * 54)
+        print(f"RH-AUC ({len(length_points)}-point trapezoid, paper-accurate):   {rh_auc:.4f}")
+        print("=" * 54)
+
+        output_data = {
+            "metadata": {
+                "model": args.model,
+                "use_grit": args.use_grit,
+                "grit_model": args.grit_model if args.use_grit else None,
+                "delta": args.delta,
+                "length_fractions": args.length_fractions,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
+                "total_samples": len(aligned_items)
+            },
+            "summary": {
+                "reasoning": headline["reasoning"],
+                "perception": headline["perception"],
+                "rh_auc": rh_auc,
+                "length_points": length_points,
+            },
+        }
+    else:
+        correct_reason, total_reason, correct_perc, total_perc, details = run_eval_pass(
+            model, processor, dataset, aligned_items, grit_client, args, length_fraction=None
+        )
+        reas_accuracy = correct_reason / total_reason if total_reason > 0 else 0
+        perc_accuracy = correct_perc / total_perc if total_perc > 0 else 0
+        # Single-point stand-in, not the paper's real RH-AUC -- pass --length-sweep for that.
+        rh_auc = reas_accuracy * perc_accuracy
+
+        print("\n" + "=" * 54)
+        print("RH-Bench Evaluation Results Summary")
+        print("=" * 54)
+        print(f"Reasoning (Reas)  :   {correct_reason}/{total_reason}   ({reas_accuracy * 100:.2f}%)")
+        print(f"Perception (Perc) :   {correct_perc}/{total_perc}   ({perc_accuracy * 100:.2f}%)")
+        print("-" * 54)
+        print(f"RH-AUC (single-point rectangle, use --length-sweep for the paper-accurate metric):   {rh_auc:.4f}")
+        print("=" * 54)
+
+        output_data = {
+            "metadata": {
+                "model": args.model,
+                "use_grit": args.use_grit,
+                "grit_model": args.grit_model if args.use_grit else None,
+                "delta": args.delta,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
+                "total_samples": len(aligned_items)
+            },
+            "summary": {
+                "reasoning": {"correct": correct_reason, "total": total_reason, "accuracy": reas_accuracy},
+                "perception": {"correct": correct_perc, "total": total_perc, "accuracy": perc_accuracy},
+                "rh_auc": rh_auc
+            },
+            "details": details
+        }
+
     output_file = os.path.join(args.output_dir, f"rhbench_{model_name}_{mode}.json")
-
-    output_data = {
-        "metadata": {
-            "model": args.model,
-            "use_grit": args.use_grit,
-            "grit_model": args.grit_model if args.use_grit else None,
-            "delta": args.delta,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
-            "total_samples": len(aligned_items)
-        },
-        "summary": {
-            "reasoning": {
-                "correct": correct_reason,
-                "total": total_reason,
-                "accuracy": reas_accuracy
-            },
-            "perception": {
-                "correct": correct_perc,
-                "total": total_perc,
-                "accuracy": perc_accuracy
-            },
-            "rh_auc": rh_auc
-        },
-        "details": details
-    }
-
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
 
