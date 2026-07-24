@@ -280,6 +280,8 @@ class ECRDLogitsProcessor(LogitsProcessor):
                     "cand_ids": info["cand_ids"].tolist(),
                     "cand_mix_probs": info["cand_mix_probs"].tolist(),
                     "chosen_id": chosen_id,
+                    "gap": info["gap"],
+                    "p1": info["p1"],
                 })
 
             if self.debug and self._step < self.debug_max:

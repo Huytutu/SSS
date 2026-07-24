@@ -1,7 +1,7 @@
 """Sanity checks for build_calibration.py using synthetic data — no GPU/model needed.
 Run with: python scripts/calib/test_build_calibration.py
 """
-from build_calibration import compute_kappa, q_hat_from_kappas, build_calibration
+from build_calibration import question_confidence, hoeffding_upper_bound, calibrate_delta
 
 
 def check(name, cond):
@@ -11,42 +11,51 @@ def check(name, cond):
 
 
 def main():
-    # kappa: chosen_id is top-1 -> kappa equals its own probability.
-    k = compute_kappa(cand_ids=[5, 2, 9], cand_mix_probs=[0.6, 0.3, 0.1], chosen_id=5)
-    check("kappa for top-1 choice == its own prob", abs(k - 0.6) < 1e-9)
+    # question_confidence: empty calib_log -> maximally confident (1.0).
+    check("empty calib_log -> confidence 1.0", question_confidence([]) == 1.0)
 
-    # kappa: chosen_id is rank 2 -> cumulative of top-2.
-    k = compute_kappa(cand_ids=[5, 2, 9], cand_mix_probs=[0.6, 0.3, 0.1], chosen_id=2)
-    check("kappa for rank-2 choice == cumulative top-2", abs(k - 0.9) < 1e-9)
+    # question_confidence: smallest gap across steps wins.
+    log = [{"gap": 0.5}, {"gap": 0.1}, {"gap": 0.3}]
+    check("confidence == min(gap) over steps", abs(question_confidence(log) - 0.1) < 1e-9)
 
-    # kappa: chosen_id not present -> None (defensive path).
-    k = compute_kappa(cand_ids=[5, 2, 9], cand_mix_probs=[0.6, 0.3, 0.1], chosen_id=42)
-    check("kappa is None when chosen_id absent", k is None)
+    # hoeffding_upper_bound: no data at this threshold -> can't vouch for it.
+    check("n_total == 0 -> upper bound 1.0", hoeffding_upper_bound(0, 0, 0.1) == 1.0)
 
-    # q_hat monotonicity: smaller alpha (stricter guarantee) -> larger or equal q_hat.
-    kappas = [0.2, 0.3, 0.35, 0.4, 0.5, 0.55, 0.6, 0.7, 0.8, 0.9]
-    q_10 = q_hat_from_kappas(kappas, alpha=0.1)
-    q_20 = q_hat_from_kappas(kappas, alpha=0.2)
-    q_30 = q_hat_from_kappas(kappas, alpha=0.3)
-    check(f"q_hat monotone as alpha shrinks (q10={q_10} >= q20={q_20} >= q30={q_30})", q_10 >= q_20 >= q_30)
-    check("q_hat within (0, 1]", all(0 < q <= 1 for q in (q_10, q_20, q_30)))
+    # hoeffding_upper_bound: bound is always >= empirical rate (margin >= 0).
+    ucb = hoeffding_upper_bound(n_wrong=3, n_total=100, conf_delta=0.1)
+    check("bound >= empirical rate", ucb >= 3 / 100)
 
-    # end-to-end: build_calibration filters wrong-answer questions and pools steps.
-    records = [
-        {"question_id": "q1", "is_correct": True, "calib_log": [
-            {"step": 3, "cand_ids": [5, 2, 9], "cand_mix_probs": [0.6, 0.3, 0.1], "chosen_id": 5},
-            {"step": 8, "cand_ids": [1, 4], "cand_mix_probs": [0.55, 0.45], "chosen_id": 1},
-        ]},
-        {"question_id": "q2", "is_correct": False, "calib_log": [
-            {"step": 2, "cand_ids": [7, 3], "cand_mix_probs": [0.5, 0.5], "chosen_id": 7},
-        ]},
-        {"question_id": "q3", "is_correct": True, "calib_log": []},
-    ]
-    summary = build_calibration(records, alphas=[0.1])
-    check("n_questions_total == 3", summary["n_questions_total"] == 3)
-    check("n_questions_kept == 2 (q2 dropped, wrong answer)", summary["n_questions_kept"] == 2)
-    check("n_steps_kept == 2 (only q1 has steps, q3 has none)", summary["n_steps_kept"] == 2)
-    check("q_hat dict has alpha=0.1 key", 0.1 in summary["q_hat"])
+    # hoeffding_upper_bound: more data at the same empirical rate -> tighter bound.
+    ucb_small_n = hoeffding_upper_bound(n_wrong=10, n_total=100, conf_delta=0.1)
+    ucb_large_n = hoeffding_upper_bound(n_wrong=100, n_total=1000, conf_delta=0.1)
+    check(f"more data tightens the bound (n=100: {ucb_small_n:.4f} >= n=1000: {ucb_large_n:.4f})",
+          ucb_small_n >= ucb_large_n)
+
+    # calibrate_delta: two clearly separated populations --
+    # 1000 "confident" questions (gap 0.5) that are always correct, and
+    # 20 "ambiguous" questions (gap 0.02) that are always wrong.
+    # A properly calibrated delta should land at 0.02: leaving the confident group
+    # alone (untouched) is safe, and the ambiguous group ends up triggered instead of
+    # counted in the untouched pool at all.
+    records = []
+    for i in range(1000):
+        records.append({
+            "question_id": f"confident-{i}", "is_correct": True,
+            "calib_log": [{"step": 0, "gap": 0.5}],
+        })
+    for i in range(20):
+        records.append({
+            "question_id": f"ambiguous-{i}", "is_correct": False,
+            "calib_log": [{"step": 0, "gap": 0.02}],
+        })
+
+    summary = calibrate_delta(records, risk_alpha=0.15, conf_delta=0.1)
+    check(f"chosen delta == 0.02 (got {summary['delta']})", summary["delta"] == 0.02)
+    check("n_questions_total == 1020", summary["n_questions_total"] == 1020)
+
+    # calibrate_delta: no data at all -> no valid delta, must not crash.
+    empty_summary = calibrate_delta([], risk_alpha=0.1, conf_delta=0.1)
+    check("no records -> delta is None", empty_summary["delta"] is None)
 
     print("\nAll build_calibration sanity checks passed.")
 

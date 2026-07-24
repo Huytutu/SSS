@@ -108,6 +108,9 @@ def main():
     ap.add_argument("--use-grit", action="store_true")
     ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
+    ap.add_argument("--collect-calib-log", default=None,
+                     help="If set, append one JSONL record per question (question_id, is_correct, calib_log) "
+                          "to this path, for use with scripts/calib/build_calibration.py")
     ap.add_argument("--load-in-4bit", action="store_true", help="Load base model in 4-bit")
     ap.add_argument("--grit-in-4bit", action="store_true", help="Load GRIT model in 4-bit")
     ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
@@ -231,7 +234,10 @@ def main():
             scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
             scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
             
-            proc = ECRDLogitsProcessor(scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64)
+            proc = ECRDLogitsProcessor(
+                scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
+                collect_calibration_log=bool(args.collect_calib_log),
+            )
 
             if grit:
                 def grit_hook(*args, **kwargs):
@@ -268,6 +274,15 @@ def main():
 
             is_correct = (pred_ans == ground_truth)
             box_iou = compute_box_iou(prediction_text, target_boxes)
+
+            if args.collect_calib_log and grit:
+                with open(args.collect_calib_log, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "question_id": idx,
+                        "category": category,
+                        "is_correct": is_correct,
+                        "calib_log": proc.calib_log,
+                    }, ensure_ascii=False) + "\n")
 
             # Record statistics
             if category in stats:

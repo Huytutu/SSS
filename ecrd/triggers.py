@@ -16,15 +16,45 @@ def _is_word_start(tok: str) -> bool:
     return tok.startswith("Ġ") or tok.startswith("▁") or tok.startswith(" ")
 
 
-def _looks_critical(tok: str) -> bool:
+# Signs that the last stretch of generated text is a math derivation rather than a
+# description of the image: an equals sign, or common LaTeX math commands/delimiters.
+_MATH_CONTEXT_RE = re.compile(r"=|\\frac|\\times|\\div|\\sqrt|\\boxed|\\cdot|\\\(|\\\)|\\\[|\\\]|\$")
+
+
+def _in_math_context(prefix_tail: str, window: int = 40) -> bool:
+    return bool(_MATH_CONTEXT_RE.search(prefix_tail[-window:]))
+
+
+def _looks_critical(tok: str, prefix_tail: str = "") -> bool:
     text = tok.lower().lstrip("Ġ▁ ").strip()
     if not text:
         return False
     if re.fullmatch(r"[0-9]+", text):
-        return True
+        # A bare number is only "critical" (worth asking a visual decider about) if it
+        # isn't a value computed mid-derivation -- GRIT can look at the image again, but
+        # it can't check whether an algebra step is correct.
+        return not _in_math_context(prefix_tail)
     if text in _CRITICAL_KEYWORDS:
         return True
     return any(text.startswith(p) for p in ["color", "colou", "num", "count", "id"])
+
+
+def _passes_word_gate(cand_ids: List[int], input_ids_row: torch.LongTensor, tokenizer: Optional[PreTrainedTokenizerBase]) -> bool:
+    if tokenizer is None or not cand_ids:
+        return False
+    try:
+        tok = tokenizer.convert_ids_to_tokens(cand_ids[0])
+    except Exception:
+        return False
+    if _is_word_start(tok):
+        return True
+    # Only decode a short tail window when we actually need math-context info, since
+    # decoding is the expensive part of this check.
+    try:
+        prefix_tail = tokenizer.decode(input_ids_row[0, -30:].tolist(), skip_special_tokens=True)
+    except Exception:
+        prefix_tail = ""
+    return _looks_critical(tok, prefix_tail)
 
 
 @dataclass
@@ -49,66 +79,7 @@ class MixedGapTrigger:
         if step - self.last_fire_step < self.cooldown:
             return False
         cand_ids: List[int] = list(map(int, list(last_info.get("cand_ids", [])[:1])))
-        if tokenizer is None or not cand_ids:
+        if not _passes_word_gate(cand_ids, input_ids, tokenizer):
             return False
-        try:
-            tok = tokenizer.convert_ids_to_tokens(cand_ids[0])
-        except Exception:
-            return False
-        if not _is_word_start(tok) and not _looks_critical(tok):
-            return False
-        self.last_fire_step = step
-        return True
-
-
-@dataclass
-class ConformalTrigger:
-    """Trigger GRIT when the APS conformal prediction set built from p_mix is not a
-    singleton. Replaces MixedGapTrigger's gap_thresh heuristic with a threshold q_hat
-    calibrated offline (see scripts/calib/) so that the set covers the true token with
-    probability >= 1 - alpha on held-out data. Same gate conditions (min_k, cooldown,
-    word-start/critical-keyword) as MixedGapTrigger; only the confidence check differs.
-    """
-    q_hat: float
-    min_k: int = 2
-    cooldown: int = 5
-    last_fire_step: int = -999999
-
-    def __call__(
-        self,
-        last_info: dict,
-        input_ids: torch.LongTensor,
-        tokenizer: Optional[PreTrainedTokenizerBase],
-    ) -> bool:
-        step = int(last_info.get("step", -1))
-        k = int(last_info.get("k", 1))
-        if k < self.min_k:
-            return False
-        if step - self.last_fire_step < self.cooldown:
-            return False
-        cand_ids: List[int] = list(map(int, list(last_info.get("cand_ids", [])[:1])))
-        if tokenizer is None or not cand_ids:
-            return False
-        try:
-            tok = tokenizer.convert_ids_to_tokens(cand_ids[0])
-        except Exception:
-            return False
-        if not _is_word_start(tok) and not _looks_critical(tok):
-            return False
-
-        cand_probs = last_info.get("cand_mix_probs")
-        if cand_probs is None or len(cand_probs) == 0:
-            return False
-        sorted_probs, _ = torch.sort(torch.as_tensor(cand_probs), descending=True)
-        cum = 0.0
-        set_size = 0
-        for p in sorted_probs.tolist():
-            cum += p
-            set_size += 1
-            if cum >= self.q_hat:
-                break
-        if set_size <= 1:
-            return False
-
         self.last_fire_step = step
         return True
