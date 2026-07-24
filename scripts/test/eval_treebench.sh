@@ -22,9 +22,12 @@ echo ""
 # Run evaluation (you can add --use-grit to test ECRD + GRIT)
 python "${PROJECT_ROOT}/scripts/test/eval_treebench.py" \
   --model Qwen/Qwen2.5-VL-7B-Instruct \
-  --limit 1 \
+  --use-grit \
+  --grit-device 0 \
+  --limit 500 \
   --load-in-4bit \
   --grit-in-4bit \
+  --collect-calib-log calib_treebench.jsonl
   "$@" # Limit to 20 samples by default for a quick test run; remove this flag to evaluate on the entire dataset.
 
 

@@ -18,19 +18,22 @@ from qwen_vl_utils import process_vision_info
 from ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger, GRITClient
 from ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
 
-def build_messages(image, question: str):
+def build_messages(image, question: str, min_pixels: int, max_pixels: int):
+    # V*Bench's own question text already ends with "Answer with the option's letter
+    # from the given choices directly." -- only add the <answer> tag requirement here,
+    # not a "think step by step" instruction, so the two prompts don't contradict.
     return [{
         "role": "user",
         "content": [
-            {"type": "image", "image": image},
-            {"type": "text", "text": question + "\n\nThink step by step and put the final answer in <answer>...</answer>."},
+            {"type": "image", "image": image, "min_pixels": min_pixels, "max_pixels": max_pixels},
+            {"type": "text", "text": question + "\n\nPut your final answer in <answer>...</answer>."},
         ],
     }]
 
 @torch.inference_mode()
-def generate_global_description(model, processor, image, question: str) -> str:
+def generate_global_description(model, processor, image, question: str, min_pixels: int, max_pixels: int) -> str:
     prompt = GLOBAL_DESCRIPTION_PROMPT.format(instruction=question)
-    messages = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt}]}]
+    messages = [{"role": "user", "content": [{"type": "image", "image": image, "min_pixels": min_pixels, "max_pixels": max_pixels}, {"type": "text", "text": prompt}]}]
     chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     img_inputs, vid_inputs = process_vision_info(messages)
     inputs = processor(text=[chat], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(model.device)
@@ -38,17 +41,13 @@ def generate_global_description(model, processor, image, question: str) -> str:
     return processor.batch_decode(out[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0].strip()
 
 def extract_answer(text: str) -> str:
-    m = re.search(r"<answer>\s*(.*?)\s*</answer>", text, flags=re.S | re.I)
-    if m:
-        ans = m.group(1).strip()
-        ans_char = re.search(r"\b([A-D])\b", ans, flags=re.I)
-        if ans_char:
-            return ans_char.group(1).upper()
-        return ans.upper()
-    
-    ans_char = re.search(r"\b([A-D])\b", text[-20:], flags=re.I)
-    if ans_char:
-        return ans_char.group(1).upper()
+    ans_match = re.search(r"<answer>\s*([A-D])\b", text, flags=re.I)
+    if ans_match:
+        return ans_match.group(1).upper()
+
+    ans_last = re.search(r"\b([A-D])\b", text[-20:], flags=re.I)
+    if ans_last:
+        return ans_last.group(1).upper()
     return ""
 
 def main():
@@ -57,10 +56,15 @@ def main():
     ap.add_argument("--use-grit", action="store_true")
     ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
+    ap.add_argument("--collect-calib-log", default=None,
+                     help="If set, append one JSONL record per question (question_id, is_correct, calib_log) "
+                          "to this path, for use with scripts/calib/build_calibration.py")
     ap.add_argument("--load-in-4bit", action="store_true", help="Load base model in 4-bit")
     ap.add_argument("--grit-in-4bit", action="store_true", help="Load GRIT model in 4-bit")
     ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--max-new-tokens", type=int, default=512)
+    ap.add_argument("--min-pixels", type=int, default=256*28*28)
+    ap.add_argument("--max-pixels", type=int, default=512*28*28)
     ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to first N samples")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
     args = ap.parse_args()
@@ -117,7 +121,7 @@ def main():
     # Dictionary to keep track of category stats
     cat_mapping = {
         "direct_attributes": "Attr",
-        "direct_spatial_relations": "Spatial"
+        "relative_position": "Spatial"
     }
     stats = {
         "Attr": {"correct": 0, "total": 0},
@@ -140,21 +144,18 @@ def main():
             continue
 
         try:
-            desc = generate_global_description(model, processor, image, question)
+            desc = generate_global_description(model, processor, image, question, args.min_pixels, args.max_pixels)
             scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
             scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
             
-            proc = ECRDLogitsProcessor(scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64)
+            proc = ECRDLogitsProcessor(
+                scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
+                collect_calibration_log=bool(args.collect_calib_log),
+            )
 
             if grit:
-                def grit_hook(img, q, prefix_text, candidates):
-                    return grit.decide_next_token(
-                        image=img,
-                        question=q,
-                        prefix_text=prefix_text,
-                        candidates=candidates,
-                        max_new_tokens=64,
-                    )
+                def grit_hook(*args, **kwargs):
+                    return grit.decide_next_token(*args, **kwargs, max_new_tokens=64)
                 proc.set_grit_runtime(
                     hook=grit_hook,
                     trigger=MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5),
@@ -163,7 +164,7 @@ def main():
                     image=image,
                 )
 
-            messages = build_messages(image, question)
+            messages = build_messages(image, question, args.min_pixels, args.max_pixels)
             chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             img_inputs, vid_inputs = process_vision_info(messages)
             inputs = processor(text=[chat], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(model.device)
@@ -180,7 +181,16 @@ def main():
             pred_ans = extract_answer(prediction_text)
             
             is_correct = (pred_ans == ground_truth)
-            
+
+            if args.collect_calib_log and grit:
+                with open(args.collect_calib_log, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({
+                        "question_id": qid,
+                        "category": category,
+                        "is_correct": is_correct,
+                        "calib_log": proc.calib_log,
+                    }, ensure_ascii=False) + "\n")
+
             stats[category]["total"] += 1
             if is_correct:
                 stats[category]["correct"] += 1
@@ -193,7 +203,8 @@ def main():
                 "ground_truth": ground_truth,
                 "is_correct": is_correct,
                 "category": category,
-                "prediction_text": prediction_text
+                "prediction_text": prediction_text,
+                "grit_invocations": proc.grit_invocations if grit else None,
             })
             
             # Compute running overall stats
@@ -239,7 +250,8 @@ def main():
             "grit_model": args.grit_model if args.use_grit else None,
             "delta": args.delta,
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "total_samples": total_samples
+            "total_samples": total_samples,
+            "total_grit_invocations": sum(d["grit_invocations"] or 0 for d in details) if args.use_grit else None,
         },
         "summary": {
             "overall": {
