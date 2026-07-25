@@ -21,8 +21,5 @@ echo ""
 
 # Run evaluation (you can add --use-grit to test ECRD + GRIT)
 python "${PROJECT_ROOT}/scripts/test/eval_vstar.py" \
-  --model Qwen/Qwen2.5-VL-7B-Instruct \
-  --limit 1 \
   --load-in-4bit \
   --grit-in-4bit \
-  "$@" # Limit to 20 samples by default for a quick test run; remove this flag to evaluate on the entire dataset.
