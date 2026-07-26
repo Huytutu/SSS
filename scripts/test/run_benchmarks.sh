@@ -9,9 +9,9 @@ echo "=========================================================="
 echo "Running All See-It-Say-It-Sorted Benchmarks"
 echo "=========================================================="
 
-echo ""
-echo ">>> [1/6] Running V* Bench (Basic ECRD)..."
-bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --limit 200 --model Qwen/Qwen2.5-VL-7B-Instruct
+# echo ""
+# echo ">>> [1/6] Running V* Bench (Basic ECRD)..."
+# bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --model Qwen/Qwen2.5-VL-7B-Instruct
 
 echo ""
 echo ">>> [2/6] Running V* Bench (ECRD + GRIT)..."
