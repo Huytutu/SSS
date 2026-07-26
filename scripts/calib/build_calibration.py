@@ -51,8 +51,10 @@ Procedure:
      trigger setting -- fewest verifications -- that still keeps residual regret small).
 
 Usage:
-    python scripts/calib/build_calibration.py --input-never never.jsonl \\
-        --input-always always.jsonl --risk-alpha 0.05 0.1
+    python scripts/calib/build_calibration.py \
+  --input calib_data.jsonl \
+  --risk-alpha 0.2 0.3 0.4 \
+  --conf-delta 0.1
 """
 from __future__ import annotations
 import argparse

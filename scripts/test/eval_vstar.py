@@ -19,14 +19,11 @@ from ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger,
 from ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
 
 def build_messages(image, question: str, min_pixels: int, max_pixels: int):
-    # V*Bench's own question text already ends with "Answer with the option's letter
-    # from the given choices directly." -- only add the <answer> tag requirement here,
-    # not a "think step by step" instruction, so the two prompts don't contradict.
     return [{
         "role": "user",
         "content": [
             {"type": "image", "image": image, "min_pixels": min_pixels, "max_pixels": max_pixels},
-            {"type": "text", "text": question + "\n\nPut your final answer in <answer>...</answer>."},
+            {"type": "text", "text": question + "\n\nThink step by step and put the final answer in <answer>...</answer>."},
         ],
     }]
 
@@ -134,7 +131,13 @@ def main():
     pbar = tqdm(dataset, desc="Evaluating V*Bench")
     for row in pbar:
         image = row.get("image")
-        question = row.get("text")
+        question = row.get("text", "")
+        if question:
+            question = re.sub(
+                r"\n?Answer with the option's letter from the given choices directly\.?",
+                "",
+                question
+            ).strip()
         ground_truth = str(row.get("label", "")).strip().upper()
         raw_category = row.get("category", "direct_attributes")
         category = cat_mapping.get(raw_category, "Attr")
