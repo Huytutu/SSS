@@ -23,4 +23,5 @@ echo ""
 python "${PROJECT_ROOT}/scripts/test/eval_rhbench.py" \
   --load-in-4bit \
   --grit-in-4bit \
+  --length-sweep
   # --limit 1

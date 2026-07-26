@@ -43,7 +43,10 @@ somewhat more conservative than an optimal LTT run would give, but the guarantee
 is not an approximation.
 
 Usage:
-    python scripts/calib/build_calibration.py --input calib_runs.jsonl --risk-alpha 0.1 0.2
+    python scripts/calib/build_calibration.py \
+  --input calib_data.jsonl \
+  --risk-alpha 0.2 0.3 0.4 \
+  --conf-delta 0.1
 """
 from __future__ import annotations
 import argparse
