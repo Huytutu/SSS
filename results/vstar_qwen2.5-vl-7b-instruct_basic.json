@@ -1,0 +1,1942 @@
+{
+  "metadata": {
+    "model": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "use_grit": false,
+    "grit_model": null,
+    "delta": 0.08,
+    "timestamp": "2026-07-25T18:52:26.318373Z",
+    "total_samples": 191,
+    "total_grit_invocations": null
+  },
+  "summary": {
+    "overall": {
+      "correct": 110,
+      "total": 191,
+      "accuracy": 0.5759162303664922
+    },
+    "categories": {
+      "Attr": {
+        "correct": 64,
+        "total": 115,
+        "accuracy": 0.5565217391304348
+      },
+      "Spatial": {
+        "correct": 46,
+        "total": 76,
+        "accuracy": 0.6052631578947368
+      }
+    }
+  },
+  "details": [
+    {
+      "question_id": "0",
+      "question": "What is the material of the glove?\n(A) rubber\n(B) cotton\n(C) kevlar\n(D) leather\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "1",
+      "question": "What is the color of the dustpan?\n(A) purple\n(B) red\n(C) blue\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "2",
+      "question": "What kind of animal is in the poster?\n(A) dove\n(B) horse\n(C) dog\n(D) cat\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "3",
+      "question": "What is the color of the woman's scarf?\n(A) white\n(B) red\n(C) yellow\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "4",
+      "question": "What is the pose of the woman with yellow backpack?\n(A) walking\n(B) running\n(C) squatting\n(D) standing\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "5",
+      "question": "What is the color of the cart?\n(A) red\n(B) white\n(C) black\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "6",
+      "question": "What is the color of the candles?\n(A) red\n(B) yellow\n(C) gray\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "7",
+      "question": "What is the color of the Apple logo?\n(A) polychromatic\n(B) red\n(C) white\n(D) silver\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "8",
+      "question": "What is the color of the plastic stool?\n(A) black\n(B) blue\n(C) white\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "9",
+      "question": "What is the color of the tissue box?\n(A) gray\n(B) white\n(C) black\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no tissue box visible in the image. The image shows a white truck on a road with trees and vegetation in the background. Therefore, the question cannot be answered based on the image provided.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "10",
+      "question": "What is the color of the man's helmet?\n(A) white\n(B) red\n(C) yellow\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "11",
+      "question": "What is the color of the woman's shirt?\n(A) white\n(B) purple\n(C) blue\n(D) pink\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "12",
+      "question": "What is the color of the slippers?\n(A) black\n(B) red\n(C) blue\n(D) pink\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "13",
+      "question": "What is the color of the cart?\n(A) green\n(B) white\n(C) black\n(D) silver\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "14",
+      "question": "What is the cartoon character on the clock.\n(A) Bugs Bunny\n(B) Mickey Mouse\n(C) SpongeBob\n(D) Donald Duck\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "15",
+      "question": "What is the color of the suitcase?\n(A) red\n(B) gray\n(C) black\n(D) brown\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no suitcase visible in the image provided. The image shows the entrance to \"The Trump World Tower\" building. Therefore, it is not possible to determine the color of a suitcase based on this image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "16",
+      "question": "What is the color of the little girl's shirt?\n(A) yellow\n(B) pink\n(C) white\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "17",
+      "question": "What is the color of the bicycle?\n(A) blue\n(B) white\n(C) silver\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "18",
+      "question": "What is the material of the stool?\n(A) bamboo\n(B) steel\n(C) plastic\n(D) wood\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "19",
+      "question": "What is the color of the bucket?\n(A) white\n(B) red\n(C) black\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "20",
+      "question": "What is the color of the shovel?\n(A) yellow\n(B) red\n(C) blue\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "21",
+      "question": "What kind of animal is on the blue sail?\n(A) spider\n(B) dog\n(C) fish\n(D) bird\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "22",
+      "question": "What is the color of the SUV car?\n(A) black\n(B) red\n(C) silver\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "23",
+      "question": "What is the color of the pink-haired woman's handbag?\n(A) brown\n(B) white\n(C) red\n(D) pink\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "24",
+      "question": "What is the color of the car?\n(A) white\n(B) black\n(C) silver\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no car visible in the image. The image shows a river, a boat, and some buildings. Therefore, the question cannot be answered based on the provided options.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "25",
+      "question": "What is the color of the bicycle?\n(A) black\n(B) red\n(C) white\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "26",
+      "question": "What is the color of the parachute?\n(A) blue\n(B) yellow\n(C) green\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "27",
+      "question": "What is the color of the motorcycle?\n(A) blue\n(B) orange\n(C) white\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "28",
+      "question": "What is the color of the woman's jacket?\n(A) black\n(B) red\n(C) blue\n(D) orange\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "29",
+      "question": "What is the color of the man's cap?\n(A) white\n(B) red\n(C) gray\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "30",
+      "question": "What is the color of the pet collar?\n(A) purple\n(B) red\n(C) yellow\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "31",
+      "question": "What is the color of the telephone?\n(A) green\n(B) white\n(C) orange\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "32",
+      "question": "What is the color of the water bottle?\n(A) black\n(B) red\n(C) white\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "33",
+      "question": "What is the color of the man's cap?\n(A) yellow\n(B) red\n(C) gray\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "34",
+      "question": "What is the color of the helmet?\n(A) green\n(B) blue\n(C) red\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no helmet visible in the image. The image shows an empty parking area and a building, but there is no helmet present. Therefore, the answer cannot be determined from the given options.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "35",
+      "question": "What is the color of the woman's bikini?\n(A) white\n(B) red\n(C) black\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "36",
+      "question": "What is the color of the flower?\n(A) pink\n(B) yellow\n(C) red\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "37",
+      "question": "What is the color of the clock?\n(A) black\n(B) yellow\n(C) green\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "38",
+      "question": "Is the color of the motorcycle orange or green?\n(A) green\n(B) orange\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "39",
+      "question": "What is the color of the bag?\n(A) white\n(B) black\n(C) purple\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "40",
+      "question": "Is the color of the motorcycle red or blue?\n(A) red\n(B) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "41",
+      "question": "What is the color of the man's cap?\n(A) white\n(B) green\n(C) black\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "42",
+      "question": "What is the color of the van?\n(A) red\n(B) white\n(C) silver\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "43",
+      "question": "What is the color of the car?\n(A) red\n(B) white\n(C) silver\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "44",
+      "question": "What is the color of the toothbrush?\n(A) green\n(B) blue\n(C) yellow\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no toothbrush visible in the image provided. Therefore, it is not possible to determine the color of a toothbrush that is not present. The question cannot be answered based on the given image. \n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "45",
+      "question": "What is the color of the handbag?\n(A) brown\n(B) black\n(C) red\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no handbag visible in the image provided. Therefore, the question cannot be answered based on the image alone. \n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "46",
+      "question": "What is the color of the man's cap?\n(A) white\n(B) blue\n(C) red\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "47",
+      "question": "What is the color of the fire hydrant?\n(A) yellow\n(B) white\n(C) red\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "48",
+      "question": "What is the color of the seesaw?\n(A) white\n(B) red\n(C) black\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "49",
+      "question": "What is the color of the plastic stool?\n(A) black\n(B) blue\n(C) white\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "50",
+      "question": "What is the color of the motorcycle helmet?\n(A) white\n(B) blue\n(C) red\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "51",
+      "question": "What is the color of the helmet?\n(A) red\n(B) yellow\n(C) white\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no helmet visible in the image provided. The image shows a river scene with a boat, a bridge, and some buildings in the background. Therefore, the question cannot be answered based on the image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "52",
+      "question": "What is the color of the luggage?\n(A) red\n(B) yellow\n(C) green\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "53",
+      "question": "What is the color of the trash can?\n(A) black\n(B) yellow\n(C) green\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "54",
+      "question": "What is the color of the scooter?\n(A) orange\n(B) green\n(C) black\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "55",
+      "question": "What is the color of the dress?\n(A) white\n(B) black\n(C) pink\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no dress visible in the image provided. The image shows an outdoor seating area with tables, chairs, and a signboard for a café or restaurant. Therefore, the question cannot be answered based on the image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "56",
+      "question": "What is the color of the cyclist's box?\n(A) green\n(B) black\n(C) yellow\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "57",
+      "question": "What is the color of the bicycle?\n(A) yellow\n(B) white\n(C) red\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no bicycle visible in the image, so it is not possible to determine its color. The question cannot be answered based on the provided image.",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "58",
+      "question": "What is the color of the flag?\n(A) red and yellow\n(B) blue and yellow\n(C) blue and red\n(D) green and white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "59",
+      "question": "What is the color of the cyclist's bag?\n(A) orange and black\n(B) white and red\n(C) red and blue\n(D) blue and gray\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no cyclist visible in the image, so it is not possible to determine the color of their bag. The question cannot be answered based on the provided image. \n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "60",
+      "question": "What is the breed of the dog?\n(A) Husky\n(B) corgi\n(C) Dalmatian\n(D) golden retriever\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no dog visible in the image, so the question cannot be answered based on the provided options.",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "61",
+      "question": "What is the color of the dog?\n(A) white\n(B) brown\n(C) golden\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "62",
+      "question": "What is the color of the motorcycle?\n(A) orange\n(B) red\n(C) white\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no motorcycle visible in the image. The vehicles present are cars and buses, not motorcycles. Therefore, the question cannot be answered based on the provided options.",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "63",
+      "question": "What is the color of the car?\n(A) blue\n(B) black\n(C) red\n(D) silver\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "64",
+      "question": "Does the kid have curly hair or straight hair?\n(A) curly hair\n(B) straight hair\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "65",
+      "question": "What is the color of the broom?\n(A) black\n(B) yellow\n(C) gray\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "66",
+      "question": "What is the color of the body of the bucket?\n(A) green\n(B) white\n(C) black\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "67",
+      "question": "What is the color of the scarf?\n(A) red\n(B) green\n(C) white\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "68",
+      "question": "Is the flag red or white?\n(A) white\n(B) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "69",
+      "question": "How many people are in the oil painting?\n(A) 4 people\n(B) 0 people\n(C) 2 people\n(D) 1 person\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "70",
+      "question": "What is the color of the dog?\n(A) gray\n(B) black\n(C) brown\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "71",
+      "question": "What is the color of the paraglider?\n(A) white\n(B) blue\n(C) pink\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "72",
+      "question": "What is the color of the woman's dress?\n(A) pink\n(B) red\n(C) black\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "73",
+      "question": "What is the color of the cleaning cloth?\n(A) blue\n(B) red\n(C) white\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "74",
+      "question": "What is the color of the umbrella?\n(A) purple\n(B) black\n(C) blue\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "75",
+      "question": "What is the color of the backpack?\n(A) gray\n(B) white\n(C) yellow\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "76",
+      "question": "What is the color of the umbrella?\n(A) red\n(B) blue\n(C) black\n(D) purple\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no umbrella visible in the image, so it is not possible to determine its color. The question cannot be answered based on the provided options.",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "77",
+      "question": "What is the color of the baby carriage?\n(A) red\n(B) blue\n(C) black\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "78",
+      "question": "What is the color of the watch?\n(A) blue\n(B) silver\n(C) white\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "79",
+      "question": "Is the color of the bus red or yellow?\n(A) yellow\n(B) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "80",
+      "question": "What is the color of the flute?\n(A) black\n(B) white\n(C) yellow\n(D) silver\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "81",
+      "question": "What is the color of the flag?\n(A) red\n(B) yellow\n(C) white\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "82",
+      "question": "What is the color of the soda can?\n(A) silver\n(B) red\n(C) white\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "83",
+      "question": "What is the color of the handbag?\n(A) white\n(B) red\n(C) black\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "84",
+      "question": "What is the color of the straw?\n(A) black\n(B) red\n(C) pink\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "85",
+      "question": "What is the color of the bus?\n(A) blue\n(B) red\n(C) yellow\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "86",
+      "question": "What is the color of the trash can?\n(A) black\n(B) silver\n(C) yellow\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "87",
+      "question": "What is the color of the guard's glove?\n(A) black\n(B) white\n(C) blue\n(D) brown\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "88",
+      "question": "What is the color of the comb?\n(A) brown\n(B) red\n(C) purple\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "89",
+      "question": "What is the color of the electric rickshaw?\n(A) green\n(B) red\n(C) black\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "90",
+      "question": "What is the color of the truck?\n(A) white\n(B) black\n(C) yellow\n(D) silver\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "91",
+      "question": "What is the color of the chair?\n(A) green\n(B) yellow\n(C) white\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "92",
+      "question": "What is the color of the messenger bag?\n(A) red\n(B) brown\n(C) white\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "93",
+      "question": "What is the color of the helmet?\n(A) white\n(B) yellow\n(C) black\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "The image does not contain any helmets, so it is not possible to determine the color of a helmet from this image. The question cannot be answered based on the provided image. \n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "94",
+      "question": "What is the color of the backpack?\n(A) red\n(B) black\n(C) white\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "95",
+      "question": "What is the color of the watchband?\n(A) purple\n(B) blue\n(C) red\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "96",
+      "question": "What is the color of the bottle cap?\n(A) blue\n(B) white\n(C) red\n(D) orange\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "C",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "97",
+      "question": "What is the color of the umbrella?\n(A) red\n(B) blue\n(C) black\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "98",
+      "question": "Does the flag have two or three colors?\n(A) two colors\n(B) three colors\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "99",
+      "question": "What is the color of the dog?\n(A) gray\n(B) yellow\n(C) brown\n(D) black and white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no dog visible in the image. Therefore, the correct answer is:\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "100",
+      "question": "What is the color of the woman's handbag?\n(A) white\n(B) red\n(C) brown\n(D) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "101",
+      "question": "What is the color of the life buoy?\n(A) green and white\n(B) red and white\n(C) yellow and red\n(D) blue and white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "102",
+      "question": "What is the color of the mailbox?\n(A) red\n(B) white\n(C) black\n(D) yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "103",
+      "question": "What is the color of the lock?\n(A) yellow\n(B) silver\n(C) golden\n(D) red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "104",
+      "question": "What is the color of the tent?\n(A) yellow\n(B) green\n(C) blue\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "105",
+      "question": "What is the color of the bottle cap?\n(A) white\n(B) black\n(C) red\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "106",
+      "question": "What is the color of the earring?\n(A) blue\n(B) red\n(C) silver\n(D) pink\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "107",
+      "question": "What is the color of the apples?\n(A) green\n(B) yellow\n(C) red\n(D) dark red\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "108",
+      "question": "What is the color of the swim ring?\n(A) white\n(B) yellow\n(C) blue\n(D) orange\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "109",
+      "question": "What is the color of the tablecloth?\n(A) green\n(B) red\n(C) white\n(D) blue\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "110",
+      "question": "What is the color of the hat?\n(A) black\n(B) pink\n(C) yellow\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "D",
+      "is_correct": false,
+      "category": "Attr",
+      "prediction_text": "There is no hat visible in the image provided. Therefore, the question cannot be answered based on the image. \n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "111",
+      "question": "Is the flag blue and yellow or red and yellow?\n(A) red and yellow\n(B) blue and yellow\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "112",
+      "question": "What is the color of the bench?\n(A) gray\n(B) red\n(C) yellow\n(D) green\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "D",
+      "ground_truth": "D",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>D</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "113",
+      "question": "Is the color of the plastic bucket black or green?\n(A) green\n(B) black\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "114",
+      "question": "What is the color of the plastic basin?\n(A) blue\n(B) yellow\n(C) pink\n(D) white\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "C",
+      "ground_truth": "C",
+      "is_correct": true,
+      "category": "Attr",
+      "prediction_text": "<answer>C</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "115",
+      "question": "Is the telephone on the left or right side of the hand lamp?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "116",
+      "question": "Is the red car on the left or right side of the police car?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no red car visible in the image, and there is also no police car present. The image shows a large square with a statue, a building, and some people sitting on benches. Therefore, it is not possible to determine the position of a red car relative to a police car in this image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "117",
+      "question": "Is the drum on the left or right side of the yellow balloon?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "118",
+      "question": "Is the motorcycle on the left or right side of the dog?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "119",
+      "question": "Is the cyclist on the left or right side of the sculpture?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "120",
+      "question": "Is the baby stroller on the left or right side of the person in orange?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "121",
+      "question": "Is the red backpack on the left or right side of the clock?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "122",
+      "question": "Is the bell above or below the clock?\n(A) above\n(B) below\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "123",
+      "question": "Is the orange luggage on the left or right side of the purple umbrella?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "124",
+      "question": "Is the dog on the left or right side of the golden tower?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "125",
+      "question": "Is the shark doll above or below the banana doll?\n(A) below\n(B) above\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "126",
+      "question": "Is the trash can on the left or right side of the baby carriage?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "127",
+      "question": "Is the seesaw on the left or right side of the red vehicle?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "128",
+      "question": "Is the umbrella on the left or right side of the traffic light?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "129",
+      "question": "Is the cyclist on the left or right side of the woman's handbag?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "130",
+      "question": "Is the wristband on the left or right side of the dog?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no dog in the image, so the question cannot be answered.",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "131",
+      "question": "Is the dog on the left or right side of the train?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "132",
+      "question": "Is the soccer ball on the left or right side of the water dispenser?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "133",
+      "question": "Is the dog on the left or right side of the scooter?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "134",
+      "question": "Is the trash can on the left or right side of the black chair?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "135",
+      "question": "Is the person with white trousers on the left or right side of the person in blue?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "136",
+      "question": "Is the dog on the left or right side of the river?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "137",
+      "question": "Is the blue bench on the left or right side of the green door?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "138",
+      "question": "Is the dog on the left or right side of the bicycle?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "139",
+      "question": "Is the blue truck on the left or right side of the white vehicle?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no blue truck visible in the image provided. The image shows a view of a town with buildings, trees, and a structure under construction. Therefore, the question cannot be answered based on the image provided.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "140",
+      "question": "Is the bucket on the left or right side of the plunger?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "141",
+      "question": "Is the green statue on the left or right side of the white statue?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no green statue present in the image, and there is also no white statue to compare it to. The image shows a building with a garden in front of it, but no statues are visible. Therefore, the question cannot be answered based on the provided image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "142",
+      "question": "Is the man with green shorts on the left or right side of the blue boat?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "143",
+      "question": "Is the man with yellow cap on the left or right side of the lamp post?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "144",
+      "question": "Is the green handbag on the left or right side of the blue umbrella?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "145",
+      "question": "Is the shopping cart on the left or right side of the dog?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no shopping cart or dog in the image provided. The image shows a street scene with cars, buildings, and signs, but no shopping cart or dog is visible. Therefore, the question cannot be answered based on the image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "146",
+      "question": "Is the switch on the left or right side of the towel?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "147",
+      "question": "Is the silver vehicle on the left or right side of the red vehicle?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "148",
+      "question": "Is the shovel on the left or right side of the house?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "149",
+      "question": "Is the yellow trash can on the left or right side of the motorcycle?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "150",
+      "question": "Is the suitcase on the left or right side of the river?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "151",
+      "question": "Is the red chair on the left or right side of the road?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "152",
+      "question": "Is the bowl on the left or right side of the faucet?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "153",
+      "question": "Is the white truck on the left or right side of the red truck?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no white truck visible in the image provided. The image shows a cityscape with buildings, a large open square, and a body of water in the background. There are no trucks present in the image. Therefore, the question cannot be answered based on the image provided.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "154",
+      "question": "Is the pillar box on the left or right side of the telephone booth?\n(A) right.\n(B) left.\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "155",
+      "question": "Is the motorcyclist on the left or right side of the truck?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "156",
+      "question": "Is the baby carriage on the left or right side of the cone?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no baby carriage visible in the image, and the question seems to be based on a misunderstanding. The image does not contain a cone, nor can it be determined if there is a baby carriage present. Therefore, the question cannot be answered with the given options. \n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "157",
+      "question": "Is the sky wheel on the left or right side of the person on the horse?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "158",
+      "question": "Is the pillar box on the left or right side of the man with the cane?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "159",
+      "question": "Is the motorcycle on the left or right side of the street?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "160",
+      "question": "Is the blue luggage on the left or right side of the bus?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "161",
+      "question": "Is the small red car on the left or right side of the baby carriage?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "162",
+      "question": "Is the woman with a backpack on the left or right side of the person with a beanie?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no woman with a backpack or a person with a beanie visible in the image provided. The image shows a castle-like structure on a hillside, some trees, and a road with vehicles. Therefore, the question cannot be answered based on the image content.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "163",
+      "question": "Is the kid with black shirt on the left or right side of the kid with blue shirt?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "164",
+      "question": "Is the yellow car on the left or right side of the pool?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "165",
+      "question": "Is the green bucket on the left or right side of the red tent?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "166",
+      "question": "Is the blue bottle on the left or right side of the carton?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "167",
+      "question": "Is the wheelchair on the left or right side of the lamp post?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "168",
+      "question": "Is the dog on the left or right side of the blue bicycle?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no dog visible in the image, only a child walking and some vehicles and buildings. Therefore, the question cannot be answered based on the provided image. However, if we were to answer hypothetically:\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "169",
+      "question": "Is the keyboard on the left or right side of the guitar?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "170",
+      "question": "Is the dog on the left or right side of the crosswalk?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "171",
+      "question": "Is the vehicle on the left or right side of the blue umbrella?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "172",
+      "question": "Is the steel ladder on the left or right side of the wagon?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no steel ladder or wagon present in the image provided. The image shows a lake, a building, and people engaging in water activities. Therefore, the question cannot be answered based on the image content.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "173",
+      "question": "Is the red vehicle on the left or right side of the sculpture?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "174",
+      "question": "Is the slide on the left or right side of the life buoy?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "175",
+      "question": "Is the green surfboard on the left or right side of the purple umbrella?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "176",
+      "question": "Is the broom on the left or right side of the folded chair?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "177",
+      "question": "Is the soccer ball on the left or right side of the long bench?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "178",
+      "question": "Is the baby carriage on the left or right side of the cyclist?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "179",
+      "question": "Is the bucket on the left or right side of the cyclist?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "180",
+      "question": "Is the telephone booth on the left or right side of the yellow van?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "181",
+      "question": "Is the red balloon above or below the white balloon?\n(A) below\n(B) above\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "182",
+      "question": "Which one is closer to the camera, the black vehicle or the silver vehicle?\n(A) black vehicle\n(B) silver vehicle\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "183",
+      "question": "Which one is closer to the camera, the water bottle or the vehicle?\n(A) water bottle\n(B) vehicle\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "184",
+      "question": "Is the scooter on the left or right side of the cyclist?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "A",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "<answer>B</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "185",
+      "question": "Is the volleyball on the left or right side of the man with white cap?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "186",
+      "question": "Is the blue mask on the left or right side of the black mask?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "B",
+      "ground_truth": "B",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "B",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "187",
+      "question": "Is the street lamp on the left or right side of the blue van?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "188",
+      "question": "Is the yellow umbrella on the left or right side of the pink umbrella?\n(A) left\n(B) right\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "<answer>A</answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "189",
+      "question": "Is the red suitcase on the left or right side of the red stool?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "",
+      "ground_truth": "B",
+      "is_correct": false,
+      "category": "Spatial",
+      "prediction_text": "There is no red suitcase or red stool visible in the image provided. The image shows a street scene with auto-rickshaws, cars, and buildings. Therefore, it is not possible to determine the position of a red suitcase or red stool based on this image.\n\n<answer></answer>",
+      "grit_invocations": null
+    },
+    {
+      "question_id": "190",
+      "question": "Is the white chair on the left or right side of the street?\n(A) right\n(B) left\nAnswer with the option's letter from the given choices directly.",
+      "prediction": "A",
+      "ground_truth": "A",
+      "is_correct": true,
+      "category": "Spatial",
+      "prediction_text": "A",
+      "grit_invocations": null
+    }
+  ]
+}

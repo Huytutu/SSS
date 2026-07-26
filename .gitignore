@@ -11,4 +11,3 @@ runs/
 *.jsonl
 *.log
 .DS_Store
-results/
