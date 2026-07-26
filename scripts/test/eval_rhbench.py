@@ -341,7 +341,7 @@ def main():
                      help="If set, append one JSONL record per question (question_id, is_correct, calib_log) to this path")
     ap.add_argument("--load-in-4bit", action="store_true", help="Load base model in 4-bit")
     ap.add_argument("--grit-in-4bit", action="store_true", help="Load GRIT model in 4-bit")
-    ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
+    ap.add_argument("--grit-device", default="0", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--device", default=None, help="Device to run base model on (e.g., cpu, cuda:0)")
     ap.add_argument("--min-pixels", type=int, default=256*28*28)
     ap.add_argument("--max-pixels", type=int, default=512*28*28)
