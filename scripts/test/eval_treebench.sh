@@ -23,7 +23,4 @@ echo ""
 python "${PROJECT_ROOT}/scripts/test/eval_treebench.py" \
   --load-in-4bit \
   --grit-in-4bit \
-
-
-# dùng --use-grit
-# dùng --model Qwen/Qwen2.5-VL-3B-Instruct
+  --collect-calib-log calib_treebench.jsonl

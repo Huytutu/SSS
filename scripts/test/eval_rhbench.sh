@@ -21,7 +21,7 @@ echo ""
 
 # Run evaluation (you can add --use-grit to test ECRD + GRIT)
 python "${PROJECT_ROOT}/scripts/test/eval_rhbench.py" \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
   --load-in-4bit \
   --grit-in-4bit \
   --length-sweep
-  # --limit 1
