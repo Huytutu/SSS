@@ -11,3 +11,6 @@ runs/
 *.jsonl
 *.log
 .DS_Store
+weights/GRIT-20-Qwen2.5-VL-3B
+weights/Qwen2.5-VL-7B-Instruct
+data/

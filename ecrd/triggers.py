@@ -16,45 +16,15 @@ def _is_word_start(tok: str) -> bool:
     return tok.startswith("Ġ") or tok.startswith("▁") or tok.startswith(" ")
 
 
-# Signs that the last stretch of generated text is a math derivation rather than a
-# description of the image: an equals sign, or common LaTeX math commands/delimiters.
-_MATH_CONTEXT_RE = re.compile(r"=|\\frac|\\times|\\div|\\sqrt|\\boxed|\\cdot|\\\(|\\\)|\\\[|\\\]|\$")
-
-
-def _in_math_context(prefix_tail: str, window: int = 40) -> bool:
-    return bool(_MATH_CONTEXT_RE.search(prefix_tail[-window:]))
-
-
-def _looks_critical(tok: str, prefix_tail: str = "") -> bool:
+def _looks_critical(tok: str) -> bool:
     text = tok.lower().lstrip("Ġ▁ ").strip()
     if not text:
         return False
     if re.fullmatch(r"[0-9]+", text):
-        # A bare number is only "critical" (worth asking a visual decider about) if it
-        # isn't a value computed mid-derivation -- GRIT can look at the image again, but
-        # it can't check whether an algebra step is correct.
-        return not _in_math_context(prefix_tail)
+        return True
     if text in _CRITICAL_KEYWORDS:
         return True
     return any(text.startswith(p) for p in ["color", "colou", "num", "count", "id"])
-
-
-def _passes_word_gate(cand_ids: List[int], input_ids_row: torch.LongTensor, tokenizer: Optional[PreTrainedTokenizerBase]) -> bool:
-    if tokenizer is None or not cand_ids:
-        return False
-    try:
-        tok = tokenizer.convert_ids_to_tokens(cand_ids[0])
-    except Exception:
-        return False
-    if _is_word_start(tok):
-        return True
-    # Only decode a short tail window when we actually need math-context info, since
-    # decoding is the expensive part of this check.
-    try:
-        prefix_tail = tokenizer.decode(input_ids_row[0, -30:].tolist(), skip_special_tokens=True)
-    except Exception:
-        prefix_tail = ""
-    return _looks_critical(tok, prefix_tail)
 
 
 @dataclass
@@ -79,7 +49,13 @@ class MixedGapTrigger:
         if step - self.last_fire_step < self.cooldown:
             return False
         cand_ids: List[int] = list(map(int, list(last_info.get("cand_ids", [])[:1])))
-        if not _passes_word_gate(cand_ids, input_ids, tokenizer):
+        if tokenizer is None or not cand_ids:
+            return False
+        try:
+            tok = tokenizer.convert_ids_to_tokens(cand_ids[0])
+        except Exception:
+            return False
+        if not _is_word_start(tok) and not _looks_critical(tok):
             return False
         self.last_fire_step = step
         return True

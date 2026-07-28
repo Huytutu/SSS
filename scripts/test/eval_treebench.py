@@ -102,11 +102,27 @@ def extract_answer(text: str) -> str:
     match = re.search(r"<answer>(.*?)</answer>", text, re.DOTALL)
     return match.group(1).strip().upper() if match else text.strip().upper()
 
+def resolve_local_model_path(model_path_or_id: str, project_root: str) -> str:
+    if os.path.isdir(model_path_or_id):
+        return os.path.abspath(model_path_or_id)
+    rel_path = os.path.join(project_root, model_path_or_id)
+    if os.path.isdir(rel_path):
+        return rel_path
+    basename = os.path.basename(model_path_or_id)
+    weights_path = os.path.join(project_root, "weights", basename)
+    if os.path.isdir(weights_path):
+        return weights_path
+    return model_path_or_id
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
     ap.add_argument("--use-grit", action="store_true")
-    ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
+    ap.add_argument("--no-supervisor", action="store_true",
+                     help="Skip the ECRD supervisor (negotiated reweighting) entirely and run plain "
+                          "decoding -- the paper's raw Base row. Incompatible with --use-grit, "
+                          "since the visual decider is only invoked through the supervisor's trigger.")
+    ap.add_argument("--grit-model", default="weights/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
     ap.add_argument("--collect-calib-log", default=None,
                      help="If set, append one JSONL record per question (question_id, is_correct, calib_log) "
@@ -116,36 +132,64 @@ def main():
     ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--max-new-tokens", type=int, default=1024, help="Reference implementation default is 1024")
     ap.add_argument("--min-pixels", type=int, default=256*28*28)
-    ap.add_argument("--max-pixels", type=int, default=512*28*28)
+    ap.add_argument("--max-pixels", type=int, default=1280*28*28)
     ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to first N samples")
+    ap.add_argument("--data-dir", default=None, help="Directory for local dataset (default: data/TreeBench)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
     args = ap.parse_args()
+    if args.no_supervisor and args.use_grit:
+        ap.error("--no-supervisor and --use-grit are incompatible: the visual decider is only "
+                  "invoked through the supervisor's trigger.")
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     os.environ["HF_HOME"] = os.path.join(project_root, ".cache")
 
-    print(f"Loading dataset: HaochenWang/TreeBench")
-    # TreeBench splits: all 405 examples are in the 'train' split
-    try:
-        dataset = load_dataset("HaochenWang/TreeBench", split="train")
-    except Exception:
+    data_dir = args.data_dir or os.path.join(project_root, "data", "TreeBench")
+    tsv_file = os.path.join(data_dir, "TreeBench.tsv") if os.path.isdir(data_dir) else data_dir
+
+    if os.path.exists(tsv_file) and os.path.isfile(tsv_file):
+        print(f"Loading local TreeBench dataset from: {tsv_file}")
+        import pandas as pd
+        df = pd.read_csv(tsv_file, sep="\t")
+        dataset = df.to_dict(orient="records")
+    else:
+        print(f"Loading dataset from Hugging Face Hub: HaochenWang/TreeBench")
+        # TreeBench splits: all 405 examples are in the 'train' split
         try:
-            dataset = load_dataset("HaochenWang/TreeBench")["train"]
+            dataset = load_dataset("HaochenWang/TreeBench", split="train")
         except Exception:
-            dataset = load_dataset("HaochenWang/TreeBench")
-            first_split = list(dataset.keys())[0]
-            dataset = dataset[first_split]
+            try:
+                dataset = load_dataset("HaochenWang/TreeBench")["train"]
+            except Exception:
+                dataset = load_dataset("HaochenWang/TreeBench")
+                first_split = list(dataset.keys())[0]
+                dataset = dataset[first_split]
 
     if args.limit:
-        dataset = dataset.select(range(min(args.limit, len(dataset))))
+        if isinstance(dataset, list):
+            dataset = dataset[:min(args.limit, len(dataset))]
+        else:
+            dataset = dataset.select(range(min(args.limit, len(dataset))))
 
-    print(f"Initializing model: {args.model}")
-    processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
-    
+    model_path = resolve_local_model_path(args.model, project_root)
+    is_local_model = os.path.isdir(model_path)
+
     model_kwargs = {
         "device_map": "auto",
         "trust_remote_code": True,
     }
+    if is_local_model:
+        print(f"Loading local base model weights from: {model_path}")
+        model_kwargs["local_files_only"] = True
+    else:
+        print(f"Initializing model from Hub: {model_path}")
+
+    processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        local_files_only=is_local_model
+    )
+
     if args.load_in_4bit:
         model_kwargs["load_in_4bit"] = True
     else:
@@ -153,27 +197,29 @@ def main():
 
     try:
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model,
+            model_path,
             attn_implementation="flash_attention_2",
             **model_kwargs
         ).eval()
     except ImportError:
         print("flash_attn is not installed. Falling back to sdpa attention implementation...")
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model,
+            model_path,
             attn_implementation="sdpa",
             **model_kwargs
         ).eval()
 
     grit = None
     if args.use_grit:
-        print(f"Initializing GRIT model: {args.grit_model}")
+        grit_path = resolve_local_model_path(args.grit_model, project_root)
+        print(f"Initializing GRIT model from: {grit_path}")
         grit = GRITClient(
-            model_id=args.grit_model,
+            model_id=grit_path,
             device=args.grit_device,
             torch_dtype=torch.bfloat16,
             load_in_4bit=args.grit_in_4bit
         )
+
 
     # Categories tracking
     subcategories = [
@@ -230,25 +276,29 @@ def main():
             full_question += " Options:\n" + options_text
 
         try:
-            desc = generate_global_description(model, processor, image, full_question, args.min_pixels, args.max_pixels)
-            scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
-            scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
-            
-            proc = ECRDLogitsProcessor(
-                scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
-                collect_calibration_log=bool(args.collect_calib_log),
-            )
+            logits_processors = []
+            proc = None
+            if not args.no_supervisor:
+                desc = generate_global_description(model, processor, image, full_question, args.min_pixels, args.max_pixels)
+                scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
+                scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
 
-            if grit:
-                def grit_hook(*args, **kwargs):
-                    return grit.decide_next_token(*args, **kwargs, max_new_tokens=64)
-                proc.set_grit_runtime(
-                    hook=grit_hook,
-                    trigger=MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5),
-                    evidence_pool=scorer,
-                    question=full_question,
-                    image=image,
+                proc = ECRDLogitsProcessor(
+                    scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
+                    collect_calibration_log=bool(args.collect_calib_log),
                 )
+
+                if grit:
+                    def grit_hook(*args, **kwargs):
+                        return grit.decide_next_token(*args, **kwargs, max_new_tokens=64)
+                    proc.set_grit_runtime(
+                        hook=grit_hook,
+                        trigger=MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5),
+                        evidence_pool=scorer,
+                        question=full_question,
+                        image=image,
+                    )
+                logits_processors.append(proc)
 
             messages = build_messages(image, full_question, args.min_pixels, args.max_pixels)
             chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -266,7 +316,7 @@ def main():
                 repetition_penalty=1.0,
                 use_cache=True,
                 max_new_tokens=args.max_new_tokens,
-                logits_processor=LogitsProcessorList([proc]),
+                logits_processor=LogitsProcessorList(logits_processors),
             )
             prediction_text = processor.batch_decode(gen[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
 
@@ -395,6 +445,7 @@ def main():
         "metadata": {
             "model": args.model,
             "use_grit": args.use_grit,
+            "no_supervisor": args.no_supervisor,
             "grit_model": args.grit_model if args.use_grit else None,
             "delta": args.delta,
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -437,7 +488,7 @@ def main():
     }
     
     clean_model_name = args.model.split("/")[-1].lower()
-    mode = "grit" if args.use_grit else "basic"
+    mode = "grit" if args.use_grit else ("base" if args.no_supervisor else "supervisor")
     output_file = os.path.join(out_dir, f"treebench_{clean_model_name}_{mode}.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)

@@ -19,14 +19,11 @@ from ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger,
 from ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
 
 def build_messages(image, question: str, min_pixels: int, max_pixels: int):
-    # V*Bench's own question text already ends with "Answer with the option's letter
-    # from the given choices directly." -- only add the <answer> tag requirement here,
-    # not a "think step by step" instruction, so the two prompts don't contradict.
     return [{
         "role": "user",
         "content": [
             {"type": "image", "image": image, "min_pixels": min_pixels, "max_pixels": max_pixels},
-            {"type": "text", "text": question + "\n\nPut your final answer in <answer>...</answer>."},
+            {"type": "text", "text": question + "\n\nThink step by step and put the final answer in <answer>...</answer>."},
         ],
     }]
 
@@ -41,20 +38,41 @@ def generate_global_description(model, processor, image, question: str, min_pixe
     return processor.batch_decode(out[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0].strip()
 
 def extract_answer(text: str) -> str:
-    ans_match = re.search(r"<answer>\s*([A-D])\b", text, flags=re.I)
-    if ans_match:
-        return ans_match.group(1).upper()
+    # Search for the letter anywhere inside the <answer> tag, since the model
+    # often writes "(B) Mickey Mouse" rather than a bare letter right after the tag.
+    tag_match = re.search(r"<answer>\s*(.*?)\s*</answer>", text, flags=re.I | re.S)
+    if tag_match:
+        letter_match = re.search(r"\b([A-D])\b", tag_match.group(1), flags=re.I)
+        if letter_match:
+            return letter_match.group(1).upper()
+        return ""
 
     ans_last = re.search(r"\b([A-D])\b", text[-20:], flags=re.I)
     if ans_last:
         return ans_last.group(1).upper()
     return ""
 
+def resolve_local_model_path(model_path_or_id: str, project_root: str) -> str:
+    if os.path.isdir(model_path_or_id):
+        return os.path.abspath(model_path_or_id)
+    rel_path = os.path.join(project_root, model_path_or_id)
+    if os.path.isdir(rel_path):
+        return rel_path
+    basename = os.path.basename(model_path_or_id)
+    weights_path = os.path.join(project_root, "weights", basename)
+    if os.path.isdir(weights_path):
+        return weights_path
+    return model_path_or_id
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
     ap.add_argument("--use-grit", action="store_true")
-    ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
+    ap.add_argument("--no-supervisor", action="store_true",
+                     help="Skip the ECRD supervisor (negotiated reweighting) entirely and run plain "
+                          "greedy decoding -- the paper's raw Base row. Incompatible with --use-grit, "
+                          "since the visual decider is only invoked through the supervisor's trigger.")
+    ap.add_argument("--grit-model", default="weights/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
     ap.add_argument("--collect-calib-log", default=None,
                      help="If set, append one JSONL record per question (question_id, is_correct, calib_log) "
@@ -64,31 +82,59 @@ def main():
     ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--max-new-tokens", type=int, default=512)
     ap.add_argument("--min-pixels", type=int, default=256*28*28)
-    ap.add_argument("--max-pixels", type=int, default=512*28*28)
+    ap.add_argument("--max-pixels", type=int, default=1280*28*28)
     ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to first N samples")
+    ap.add_argument("--data-dir", default=None, help="Directory for local dataset (default: data/VStar)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
     args = ap.parse_args()
+    if args.no_supervisor and args.use_grit:
+        ap.error("--no-supervisor and --use-grit are incompatible: the visual decider is only "
+                  "invoked through the supervisor's trigger.")
 
     # Set cache dir to .cache folder in project
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     os.environ["HF_HOME"] = os.path.join(project_root, ".cache")
 
-    print(f"Loading dataset: lmms-lab/vstar-bench")
-    try:
-        dataset = load_dataset("lmms-lab/vstar-bench", split="test")
-    except Exception:
-        dataset = load_dataset("lmms-lab/vstar-bench")["test"]
+    data_dir = args.data_dir or os.path.join(project_root, "data", "VStar")
+    parquet_file = os.path.join(data_dir, "data", "test-00000-of-00001.parquet")
+    if not os.path.exists(parquet_file):
+        import glob
+        parquets = glob.glob(os.path.join(data_dir, "*.parquet")) + glob.glob(os.path.join(data_dir, "**", "*.parquet"), recursive=True)
+        if parquets:
+            parquet_file = parquets[0]
+
+    if os.path.exists(parquet_file):
+        print(f"Loading local V*Bench dataset from: {parquet_file}")
+        dataset = load_dataset("parquet", data_files={"test": parquet_file})["test"]
+    else:
+        print(f"Loading dataset from Hugging Face Hub: lmms-lab/vstar-bench")
+        try:
+            dataset = load_dataset("lmms-lab/vstar-bench", split="test")
+        except Exception:
+            dataset = load_dataset("lmms-lab/vstar-bench")["test"]
 
     if args.limit:
         dataset = dataset.select(range(min(args.limit, len(dataset))))
 
-    print(f"Initializing model: {args.model}")
-    processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
+    model_path = resolve_local_model_path(args.model, project_root)
+    is_local_model = os.path.isdir(model_path)
     
     model_kwargs = {
         "device_map": "auto",
         "trust_remote_code": True,
     }
+    if is_local_model:
+        print(f"Loading local base model weights from: {model_path}")
+        model_kwargs["local_files_only"] = True
+    else:
+        print(f"Initializing model from Hub: {model_path}")
+
+    processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        local_files_only=is_local_model
+    )
+
     if args.load_in_4bit:
         model_kwargs["load_in_4bit"] = True
     else:
@@ -96,23 +142,24 @@ def main():
 
     try:
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model,
+            model_path,
             attn_implementation="flash_attention_2",
             **model_kwargs
         ).eval()
     except ImportError:
         print("flash_attn is not installed. Falling back to sdpa attention implementation...")
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model,
+            model_path,
             attn_implementation="sdpa",
             **model_kwargs
         ).eval()
 
     grit = None
     if args.use_grit:
-        print(f"Initializing GRIT model: {args.grit_model}")
+        grit_path = resolve_local_model_path(args.grit_model, project_root)
+        print(f"Initializing GRIT model from: {grit_path}")
         grit = GRITClient(
-            model_id=args.grit_model,
+            model_id=grit_path,
             device=args.grit_device,
             torch_dtype=torch.bfloat16,
             load_in_4bit=args.grit_in_4bit
@@ -134,7 +181,13 @@ def main():
     pbar = tqdm(dataset, desc="Evaluating V*Bench")
     for row in pbar:
         image = row.get("image")
-        question = row.get("text")
+        question = row.get("text", "")
+        if question:
+            question = re.sub(
+                r"\n?Answer with the option's letter from the given choices directly\.?",
+                "",
+                question
+            ).strip()
         ground_truth = str(row.get("label", "")).strip().upper()
         raw_category = row.get("category", "direct_attributes")
         category = cat_mapping.get(raw_category, "Attr")
@@ -144,25 +197,29 @@ def main():
             continue
 
         try:
-            desc = generate_global_description(model, processor, image, question, args.min_pixels, args.max_pixels)
-            scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
-            scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
-            
-            proc = ECRDLogitsProcessor(
-                scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
-                collect_calibration_log=bool(args.collect_calib_log),
-            )
+            logits_processors = []
+            proc = None
+            if not args.no_supervisor:
+                desc = generate_global_description(model, processor, image, question, args.min_pixels, args.max_pixels)
+                scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
+                scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
 
-            if grit:
-                def grit_hook(*args, **kwargs):
-                    return grit.decide_next_token(*args, **kwargs, max_new_tokens=64)
-                proc.set_grit_runtime(
-                    hook=grit_hook,
-                    trigger=MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5),
-                    evidence_pool=scorer,
-                    question=question,
-                    image=image,
+                proc = ECRDLogitsProcessor(
+                    scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
+                    collect_calibration_log=bool(args.collect_calib_log),
                 )
+
+                if grit:
+                    def grit_hook(*args, **kwargs):
+                        return grit.decide_next_token(*args, **kwargs, max_new_tokens=64)
+                    proc.set_grit_runtime(
+                        hook=grit_hook,
+                        trigger=MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5),
+                        evidence_pool=scorer,
+                        question=question,
+                        image=image,
+                    )
+                logits_processors.append(proc)
 
             messages = build_messages(image, question, args.min_pixels, args.max_pixels)
             chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -174,7 +231,7 @@ def main():
                 do_sample=False,
                 use_cache=True,
                 max_new_tokens=args.max_new_tokens,
-                logits_processor=LogitsProcessorList([proc]),
+                logits_processor=LogitsProcessorList(logits_processors),
             )
             prediction_text = processor.batch_decode(gen[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
             
@@ -247,6 +304,7 @@ def main():
         "metadata": {
             "model": args.model,
             "use_grit": args.use_grit,
+            "no_supervisor": args.no_supervisor,
             "grit_model": args.grit_model if args.use_grit else None,
             "delta": args.delta,
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -272,7 +330,7 @@ def main():
     }
     
     clean_model_name = args.model.split("/")[-1].lower()
-    mode = "grit" if args.use_grit else "basic"
+    mode = "grit" if args.use_grit else ("base" if args.no_supervisor else "supervisor")
     output_file = os.path.join(out_dir, f"vstar_{clean_model_name}_{mode}.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)

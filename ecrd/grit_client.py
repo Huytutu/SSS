@@ -145,15 +145,37 @@ class GRITClient:
 
     def __init__(
         self,
-        model_id: str = "yfan1997/GRIT-20-Qwen2.5-VL-3B",
+        model_id: str = "weights/GRIT-20-Qwen2.5-VL-3B",
         device: Union[str, int] = 0,
         torch_dtype: Union[str, torch.dtype] = torch.bfloat16,
         max_prefix_chars: int = 512,
         trace_dir: Optional[str] = None,
         trace_file: str = "grit_trace.jsonl",
         load_in_4bit: bool = False,
+        local_files_only: bool = True,
     ):
-        model_kwargs = {}
+        # Resolve local weights path
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidate_paths = [
+            model_id,
+            os.path.join(project_root, model_id),
+            os.path.join(project_root, "weights", os.path.basename(model_id)),
+            os.path.join(project_root, "weights", "GRIT-20-Qwen2.5-VL-3B"),
+        ]
+        local_path = None
+        for p in candidate_paths:
+            if p and os.path.isdir(p):
+                local_path = os.path.abspath(p)
+                break
+
+        if local_path:
+            model_id = local_path
+            print(f"Loading local GRIT model weights from: {model_id}")
+
+        model_kwargs = {"trust_remote_code": True}
+        if local_path or local_files_only:
+            model_kwargs["local_files_only"] = True
+
         if device == "cpu":
             model_kwargs["device_map"] = "cpu"
             model_kwargs["torch_dtype"] = torch.bfloat16
@@ -177,7 +199,10 @@ class GRITClient:
                 attn_implementation="sdpa",
                 **model_kwargs
             ).eval()
-        self.processor = AutoProcessor.from_pretrained(model_id)
+        processor_kwargs = {"trust_remote_code": True}
+        if local_path or local_files_only:
+            processor_kwargs["local_files_only"] = True
+        self.processor = AutoProcessor.from_pretrained(model_id, **processor_kwargs)
         self.max_prefix_chars = int(max_prefix_chars)
         self._trace_fp = None
         if trace_dir:

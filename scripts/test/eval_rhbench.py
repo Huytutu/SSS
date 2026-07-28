@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 
-from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers import AutoProcessor, AutoModelForImageTextToText
 from qwen_vl_utils import process_vision_info
 
 # ECRD imports
@@ -200,18 +200,14 @@ def build_ecrd_processor(model, processor, image, question: str, args, grit_clie
         collect_calibration_log=bool(args.collect_calib_log),
     )
 
-    from ecrd.triggers import MixedGapTrigger, ConformalTrigger
-    if args.trigger == "conformal":
-        if args.q_hat is None:
-            raise ValueError("--trigger conformal requires --q-hat (from scripts/calib/build_calibration.py)")
-        trigger = ConformalTrigger(q_hat=args.q_hat, min_k=2, cooldown=5)
-    else:
+    if grit_client is not None:
+        from ecrd.triggers import MixedGapTrigger
         trigger = MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5)
 
-    def grit_hook_fn(*a, **kw):
-        return grit_client.decide_next_token(*a, **kw)
+        def grit_hook_fn(*a, **kw):
+            return grit_client.decide_next_token(*a, **kw)
 
-    proc.set_grit_runtime(hook=grit_hook_fn, trigger=trigger, evidence_pool=scorer, question=question, image=image)
+        proc.set_grit_runtime(hook=grit_hook_fn, trigger=trigger, evidence_pool=scorer, question=question, image=image)
 
     import copy
     gen_config = copy.copy(model.generation_config)
@@ -257,16 +253,19 @@ def run_eval_pass(model, processor, dataset, aligned_items, grit_client, args, l
     desc = "Evaluating RH-Bench" if length_fraction is None else f"Evaluating RH-Bench (length_fraction={length_fraction:.2f})"
     pbar = tqdm(aligned_items, desc=desc)
     for item in pbar:
-        row = dataset[item["dataset_index"]]
-        image = row["image"]
+        if item.get("local_img_path"):
+            image = Image.open(item["local_img_path"]).convert("RGB")
+        else:
+            row = dataset[item["dataset_index"]]
+            image = row["image"]
 
         category = item["category"]
         question = item["question"]
         ground_truth = item["answer"]
 
         proc, gen_config = (None, None)
-        if args.use_grit:
-            proc, gen_config = build_ecrd_processor(model, processor, image, question, args, grit_client)
+        if args.use_grit or args.supervisor_only:
+            proc, gen_config = build_ecrd_processor(model, processor, image, question, args, grit_client if args.use_grit else None)
 
         think_char_budget = None
         if length_fraction is not None:
@@ -328,11 +327,27 @@ def run_eval_pass(model, processor, dataset, aligned_items, grit_client, args, l
 
     return correct_reason, total_reason, correct_perc, total_perc, details
 
+def resolve_local_model_path(model_path_or_id: str, project_root: str) -> str:
+    if os.path.isdir(model_path_or_id):
+        return os.path.abspath(model_path_or_id)
+    rel_path = os.path.join(project_root, model_path_or_id)
+    if os.path.isdir(rel_path):
+        return rel_path
+    basename = os.path.basename(model_path_or_id)
+    weights_path = os.path.join(project_root, "weights", basename)
+    if os.path.isdir(weights_path):
+        return weights_path
+    return model_path_or_id
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="Qwen/Qwen2.5-VL-7B-Instruct")
+    ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
     ap.add_argument("--use-grit", action="store_true")
-    ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
+    ap.add_argument("--supervisor-only", action="store_true",
+                     help="Run the ECRD supervisor (negotiated reweighting) without the GRIT visual "
+                          "decider -- the paper's '+supervisor' ablation row. Ignored if --use-grit is set, "
+                          "since --use-grit already implies the supervisor.")
+    ap.add_argument("--grit-model", default="weights/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
     ap.add_argument("--trigger", choices=["gap", "conformal"], default="gap",
                      help="gap = original MixedGapTrigger (uses --delta); conformal = ConformalTrigger (uses --q-hat)")
@@ -344,12 +359,11 @@ def main():
     ap.add_argument("--grit-device", default="0", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--device", default=None, help="Device to run base model on (e.g., cpu, cuda:0)")
     ap.add_argument("--min-pixels", type=int, default=256*28*28)
-    ap.add_argument("--max-pixels", type=int, default=512*28*28)
-    # 512 truncated ~13% of samples mid-reasoning (long math/geometry chains) in an
-    # earlier run; 1024 matches the TreeBench script default and the RH-Bench reference.
+    ap.add_argument("--max-pixels", type=int, default=1280*28*28)
     ap.add_argument("--max-new-tokens", type=int, default=1024)
     ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to N samples (stratified across categories)")
     ap.add_argument("--offset", type=int, default=0, help="Skip the first N stratified samples per category before applying --limit (for disjoint calib/test splits)")
+    ap.add_argument("--data-dir", default=None, help="Directory for local dataset (default: data/RH-Bench)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
     ap.add_argument("--length-sweep", action="store_true",
                      help="Compute RH-AUC the paper-accurate way: sweep reasoning-length budgets via "
@@ -363,62 +377,95 @@ def main():
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     os.environ["HF_HOME"] = os.path.join(project_root, ".cache")
 
-    print("Loading LCZZZZ/RH-Bench dataset...")
-    dataset = load_dataset("LCZZZZ/RH-Bench", split="train")
+    data_dir = args.data_dir or os.path.join(project_root, "data", "RH-Bench")
+    local_halu = os.path.join(data_dir, "halu_data.json")
+    local_reason = os.path.join(data_dir, "reason_data.json")
 
-    print("Downloading metadata json files...")
-    halu_path = hf_hub_download(repo_id="LCZZZZ/RH-Bench", filename="halu_data.json", repo_type="dataset")
-    reason_path = hf_hub_download(repo_id="LCZZZZ/RH-Bench", filename="reason_data.json", repo_type="dataset")
-
-    with open(halu_path, "r", encoding="utf-8") as f:
-        halu_metadata = json.load(f)
-    with open(reason_path, "r", encoding="utf-8") as f:
-        reason_metadata = json.load(f)
-
-    # Build lookup metadata dicts
-    halu_dict = {item["image"]: item for item in halu_metadata}
-    reason_dict = {item["image"]: item for item in reason_metadata}
-
-    # Extract original paths from Arrow Table to align imagefolder splits
-    print("Extracting Arrow table file paths for alignment...")
-    all_paths = [x["path"] if x is not None else None for x in dataset.data["image"].to_pylist()]
-
-    # Filter items that are aligned
     aligned_items = []
-    for idx, path in enumerate(all_paths):
-        if not path:
-            continue
-        parts = path.replace("\\", "/").split("/")
-        rel_path = ""
-        category = ""
-        if "per_images" in parts:
-            idx_part = parts.index("per_images")
-            rel_path = "/".join(parts[idx_part:])
-            category = "perception"
-        elif "reason_images" in parts:
-            idx_part = parts.index("reason_images")
-            rel_path = "/".join(parts[idx_part:])
-            category = "reasoning"
-        
-        if not rel_path:
-            continue
+    dataset = None
 
-        meta_item = None
-        if category == "perception":
-            meta_item = halu_dict.get(rel_path)
-        elif category == "reasoning":
-            meta_item = reason_dict.get(rel_path)
-        
-        if meta_item:
+    if os.path.exists(local_halu) and os.path.exists(local_reason):
+        print(f"Loading local RH-Bench dataset from: {data_dir}")
+        with open(local_halu, "r", encoding="utf-8") as f:
+            halu_metadata = json.load(f)
+        with open(local_reason, "r", encoding="utf-8") as f:
+            reason_metadata = json.load(f)
+
+        for item in halu_metadata:
             aligned_items.append({
-                "dataset_index": idx,
-                "category": category,
-                "rel_path": rel_path,
-                "question": meta_item["question"],
-                "answer": meta_item["answer"],
-                "question_type": meta_item["question_type"],
-                "id": meta_item["id"]
+                "dataset_index": None,
+                "category": "perception",
+                "rel_path": item["image"],
+                "local_img_path": os.path.join(data_dir, item["image"]),
+                "question": item["question"],
+                "answer": item["answer"],
+                "question_type": item.get("question_type", ""),
+                "id": item["id"]
             })
+        for item in reason_metadata:
+            aligned_items.append({
+                "dataset_index": None,
+                "category": "reasoning",
+                "rel_path": item["image"],
+                "local_img_path": os.path.join(data_dir, item["image"]),
+                "question": item["question"],
+                "answer": item["answer"],
+                "question_type": item.get("question_type", ""),
+                "id": item["id"]
+            })
+    else:
+        print("Loading dataset from Hugging Face Hub: LCZZZZ/RH-Bench...")
+        dataset = load_dataset("LCZZZZ/RH-Bench", split="train")
+
+        print("Downloading metadata json files...")
+        halu_path = hf_hub_download(repo_id="LCZZZZ/RH-Bench", filename="halu_data.json", repo_type="dataset")
+        reason_path = hf_hub_download(repo_id="LCZZZZ/RH-Bench", filename="reason_data.json", repo_type="dataset")
+
+        with open(halu_path, "r", encoding="utf-8") as f:
+            halu_metadata = json.load(f)
+        with open(reason_path, "r", encoding="utf-8") as f:
+            reason_metadata = json.load(f)
+
+        halu_dict = {item["image"]: item for item in halu_metadata}
+        reason_dict = {item["image"]: item for item in reason_metadata}
+
+        print("Extracting Arrow table file paths for alignment...")
+        all_paths = [x["path"] if x is not None else None for x in dataset.data["image"].to_pylist()]
+
+        for idx, path in enumerate(all_paths):
+            if not path:
+                continue
+            parts = path.replace("\\", "/").split("/")
+            rel_path = ""
+            category = ""
+            if "per_images" in parts:
+                idx_part = parts.index("per_images")
+                rel_path = "/".join(parts[idx_part:])
+                category = "perception"
+            elif "reason_images" in parts:
+                idx_part = parts.index("reason_images")
+                rel_path = "/".join(parts[idx_part:])
+                category = "reasoning"
+            
+            if not rel_path:
+                continue
+
+            meta_item = None
+            if category == "perception":
+                meta_item = halu_dict.get(rel_path)
+            elif category == "reasoning":
+                meta_item = reason_dict.get(rel_path)
+            
+            if meta_item:
+                aligned_items.append({
+                    "dataset_index": idx,
+                    "category": category,
+                    "rel_path": rel_path,
+                    "question": meta_item["question"],
+                    "answer": meta_item["answer"],
+                    "question_type": meta_item["question_type"],
+                    "id": meta_item["id"]
+                })
 
     if args.limit:
         # Dataset is stored as one contiguous block of "perception" items followed by
@@ -434,56 +481,72 @@ def main():
 
     print(f"Total aligned samples to evaluate: {len(aligned_items)}")
 
-    print(f"Initializing model: {args.model}")
-    processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
+    model_path = resolve_local_model_path(args.model, project_root)
+    is_local_model = os.path.isdir(model_path)
+
+    if is_local_model:
+        print(f"Loading local base model weights from: {model_path}")
+    else:
+        print(f"Initializing model from Hub: {model_path}")
+
+    processor = AutoProcessor.from_pretrained(
+        model_path,
+        trust_remote_code=True,
+        local_files_only=is_local_model
+    )
     
     device = args.device
     if not device:
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
+    model_kwargs = {"trust_remote_code": True}
+    if is_local_model:
+        model_kwargs["local_files_only"] = True
+
     if device == "cpu":
         print("Loading base model on CPU (bfloat16)...")
-        model = AutoModelForVision2Seq.from_pretrained(
-            args.model,
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
             device_map="cpu",
             torch_dtype=torch.bfloat16,
-            trust_remote_code=True
+            **model_kwargs
         )
     else:
         if args.load_in_4bit:
             print("Loading base model in 4-bit precision with device_map='auto'...")
-            model = AutoModelForVision2Seq.from_pretrained(
-                args.model,
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_path,
                 device_map="auto",
                 load_in_4bit=True,
-                trust_remote_code=True
+                **model_kwargs
             )
         else:
             print("Loading base model in bfloat16 with device_map='auto'...")
-            model = AutoModelForVision2Seq.from_pretrained(
-                args.model,
+            model = AutoModelForImageTextToText.from_pretrained(
+                model_path,
                 device_map="auto",
                 torch_dtype=torch.bfloat16,
-                trust_remote_code=True
+                **model_kwargs
             )
 
     grit_client = None
     if args.use_grit:
-        print(f"Initializing GRIT Client with decider: {args.grit_model}")
+        grit_path = resolve_local_model_path(args.grit_model, project_root)
+        print(f"Initializing GRIT Client with decider: {grit_path}")
         from ecrd.grit_client import GRITClient
         grit_device = args.grit_device
         if grit_device != "cpu" and grit_device.isdigit():
             grit_device = f"cuda:{grit_device}"
         
         grit_client = GRITClient(
-            model_id=args.grit_model,
+            model_id=grit_path,
             device=grit_device,
             load_in_4bit=args.grit_in_4bit
         )
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-    mode = "grit" if args.use_grit else "basic"
+    mode = "grit" if args.use_grit else ("supervisor" if args.supervisor_only else "base")
     model_name = os.path.basename(args.model).lower()
 
     if args.length_sweep:
@@ -520,6 +583,7 @@ def main():
             "metadata": {
                 "model": args.model,
                 "use_grit": args.use_grit,
+                "supervisor_only": args.supervisor_only,
                 "grit_model": args.grit_model if args.use_grit else None,
                 "delta": args.delta,
                 "length_fractions": args.length_fractions,
@@ -555,6 +619,7 @@ def main():
             "metadata": {
                 "model": args.model,
                 "use_grit": args.use_grit,
+                "supervisor_only": args.supervisor_only,
                 "grit_model": args.grit_model if args.use_grit else None,
                 "delta": args.delta,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
