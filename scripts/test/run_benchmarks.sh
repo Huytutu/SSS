@@ -9,29 +9,41 @@ echo "=========================================================="
 echo "Running All See-It-Say-It-Sorted Benchmarks"
 echo "=========================================================="
 
-# echo ""
-# echo ">>> [1/6] Running V* Bench (Basic ECRD)..."
-# bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --model Qwen/Qwen2.5-VL-7B-Instruct
-
-# echo ""
-# echo ">>> [2/6] Running V* Bench (ECRD + GRIT)..."
-# bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --use-grit --grit-device 0 --model Qwen/Qwen2.5-VL-7B-Instruct
-
-# echo ""
-# echo ">>> [3/6] Running TreeBench (Basic ECRD)..."
-# bash "${PROJECT_ROOT}/scripts/test/eval_treebench.sh" --model Qwen/Qwen2.5-VL-7B-Instruct
-
-# echo ""
-# echo ">>> [4/6] Running TreeBench (ECRD + GRIT)..."
-# bash "${PROJECT_ROOT}/scripts/test/eval_treebench.sh" --use-grit --grit-device 0 --model Qwen/Qwen2.5-VL-7B-Instruct
-
-# echo ""
-# echo ">>> [5/6] Running RH-Bench (Basic ECRD)..."
-# bash "${PROJECT_ROOT}/scripts/test/eval_rhbench.sh" --model Qwen/Qwen2.5-VL-7B-Instruct
+echo ""
+echo ">>> [1/9] Running V* Bench (Base)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --base
 
 echo ""
-echo ">>> [6/6] Running RH-Bench (ECRD + GRIT)..."
-bash "${PROJECT_ROOT}/scripts/test/eval_rhbench.sh" --use-grit --grit-device 0 --model Qwen/Qwen2.5-VL-7B-Instruct
+echo ">>> [2/9] Running V* Bench (+supervisor)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --supervisor
+
+echo ""
+echo ">>> [3/9] Running V* Bench (+ECRD)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_vstar.sh" --ecrd --grit-device 0
+
+echo ""
+echo ">>> [4/9] Running TreeBench (Base)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_treebench.sh" --base
+
+echo ""
+echo ">>> [5/9] Running TreeBench (+supervisor)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_treebench.sh" --supervisor
+
+echo ""
+echo ">>> [6/9] Running TreeBench (+ECRD)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_treebench.sh" --ecrd --grit-device 0
+
+echo ""
+echo ">>> [7/9] Running RH-Bench (Base)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_rhbench.sh" --base
+
+echo ""
+echo ">>> [8/9] Running RH-Bench (+supervisor)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_rhbench.sh" --supervisor
+
+echo ""
+echo ">>> [9/9] Running RH-Bench (+ECRD)..."
+bash "${PROJECT_ROOT}/scripts/test/eval_rhbench.sh" --ecrd --grit-device 0
 
 echo ""
 echo "=========================================================="

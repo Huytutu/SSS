@@ -32,7 +32,7 @@ class MixedGapTrigger:
     """Trigger GRIT when the mixed top-1/top-2 gap remains small at a non-singleton knee."""
     gap_thresh: float = 0.08
     min_k: int = 2
-    cooldown: int = 5
+    cooldown: int = 1
     last_fire_step: int = -999999
 
     def __call__(

@@ -16,8 +16,8 @@ from transformers import AutoProcessor, AutoModelForImageTextToText
 from qwen_vl_utils import process_vision_info
 
 # ECRD imports
-from ecrd.scorer import Evidence, EvidenceScorer
-from ecrd.logits_processor import ECRDLogitsProcessor
+from MORAI.SSS.ecrd.scorer import Evidence, EvidenceScorer
+from MORAI.SSS.ecrd.logits_processor import ECRDLogitsProcessor
 from transformers.generation import LogitsProcessorList
 
 GLOBAL_DESCRIPTION_PROMPT = (
@@ -201,7 +201,7 @@ def build_ecrd_processor(model, processor, image, question: str, args, grit_clie
     )
 
     if grit_client is not None:
-        from ecrd.triggers import MixedGapTrigger
+        from MORAI.SSS.ecrd.triggers import MixedGapTrigger
         trigger = MixedGapTrigger(gap_thresh=args.delta, min_k=2, cooldown=5)
 
         def grit_hook_fn(*a, **kw):
@@ -264,7 +264,7 @@ def run_eval_pass(model, processor, dataset, aligned_items, grit_client, args, l
         ground_truth = item["answer"]
 
         proc, gen_config = (None, None)
-        if args.use_grit or args.supervisor_only:
+        if args.use_supervisor:
             proc, gen_config = build_ecrd_processor(model, processor, image, question, args, grit_client if args.use_grit else None)
 
         think_char_budget = None
@@ -342,11 +342,14 @@ def resolve_local_model_path(model_path_or_id: str, project_root: str) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
-    ap.add_argument("--use-grit", action="store_true")
-    ap.add_argument("--supervisor-only", action="store_true",
-                     help="Run the ECRD supervisor (negotiated reweighting) without the GRIT visual "
-                          "decider -- the paper's '+supervisor' ablation row. Ignored if --use-grit is set, "
-                          "since --use-grit already implies the supervisor.")
+    mode_group = ap.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument("--base", action="store_true",
+                             help="Raw decoding: no ECRD supervisor, no GRIT decider (paper's Base row).")
+    mode_group.add_argument("--supervisor", action="store_true",
+                             help="ECRD supervisor (negotiated reweighting) without the GRIT visual decider "
+                                  "(paper's '+supervisor' row).")
+    mode_group.add_argument("--ecrd", action="store_true",
+                             help="Full ECRD: supervisor + GRIT visual decider (paper's '+ECRD' row).")
     ap.add_argument("--grit-model", default="weights/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
     ap.add_argument("--trigger", choices=["gap", "conformal"], default="gap",
@@ -373,6 +376,9 @@ def main():
                      help="Fractions of the category-specific max reasoning length (600 chars for "
                           "reasoning items, 300 for perception items) to sweep when --length-sweep is set.")
     args = ap.parse_args()
+    # Derived flags used throughout: --ecrd implies the supervisor is on too.
+    args.use_grit = args.ecrd
+    args.use_supervisor = args.supervisor or args.ecrd
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     os.environ["HF_HOME"] = os.path.join(project_root, ".cache")
@@ -533,7 +539,7 @@ def main():
     if args.use_grit:
         grit_path = resolve_local_model_path(args.grit_model, project_root)
         print(f"Initializing GRIT Client with decider: {grit_path}")
-        from ecrd.grit_client import GRITClient
+        from MORAI.SSS.ecrd.grit_client import GRITClient
         grit_device = args.grit_device
         if grit_device != "cpu" and grit_device.isdigit():
             grit_device = f"cuda:{grit_device}"
@@ -546,7 +552,7 @@ def main():
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-    mode = "grit" if args.use_grit else ("supervisor" if args.supervisor_only else "base")
+    mode = "ecrd" if args.ecrd else ("supervisor" if args.supervisor else "base")
     model_name = os.path.basename(args.model).lower()
 
     if args.length_sweep:
@@ -582,8 +588,9 @@ def main():
         output_data = {
             "metadata": {
                 "model": args.model,
+                "mode": mode,
+                "use_supervisor": args.use_supervisor,
                 "use_grit": args.use_grit,
-                "supervisor_only": args.supervisor_only,
                 "grit_model": args.grit_model if args.use_grit else None,
                 "delta": args.delta,
                 "length_fractions": args.length_fractions,
@@ -618,8 +625,9 @@ def main():
         output_data = {
             "metadata": {
                 "model": args.model,
+                "mode": mode,
+                "use_supervisor": args.use_supervisor,
                 "use_grit": args.use_grit,
-                "supervisor_only": args.supervisor_only,
                 "grit_model": args.grit_model if args.use_grit else None,
                 "delta": args.delta,
                 "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",

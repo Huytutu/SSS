@@ -1,7 +1,7 @@
 """Sanity checks for build_calibration.py using synthetic data — no GPU/model needed.
 Run with: python scripts/calib/test_build_calibration.py
 """
-from build_calibration import question_confidence, regret_upper_bound, calibrate_delta, join_never_always
+from MORAI.SSS.scripts.calib.build_calibration import question_confidence, regret_upper_bound, calibrate_delta, join_never_always
 
 
 def check(name, cond):

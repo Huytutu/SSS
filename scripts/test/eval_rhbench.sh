@@ -18,7 +18,7 @@ echo "Hugging Face Cache: ${HF_HOME}"
 echo "=========================================================="
 echo ""
 
-# Run evaluation (you can add --use-grit to test ECRD + GRIT)
+# Run evaluation -- pass exactly one of --base / --supervisor / --ecrd
 python "${PROJECT_ROOT}/scripts/test/eval_rhbench.py" \
   "$@"
 

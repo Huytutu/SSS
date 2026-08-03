@@ -2,7 +2,7 @@
 """Evaluation script for TreeBench using ECRD.
 
 Usage:
-  python scripts/test/eval_treebench.py --model Qwen/Qwen2.5-VL-7B-Instruct --use-grit
+  python scripts/test/eval_treebench.py --model Qwen/Qwen2.5-VL-7B-Instruct --ecrd
 """
 import argparse
 import ast
@@ -17,8 +17,8 @@ from tqdm import tqdm
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration, LogitsProcessorList
 from qwen_vl_utils import process_vision_info
 
-from ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger, GRITClient
-from ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
+from MORAI.SSS.ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger, GRITClient
+from MORAI.SSS.ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
 
 # System prompt and answer-instruction suffix, verbatim from the TreeBench reference
 # implementation (github.com/Haochen-Wang409/TreeVGR/blob/main/inference_treebench.py),
@@ -51,11 +51,7 @@ def build_messages(image, question: str, min_pixels: int, max_pixels: int):
     ]
 
 def compute_box_iou(predict_str: str, target_boxes: list) -> float:
-    """Average IoU between <box>[x1,y1,x2,y2]</box> boxes in the prediction and the
-    ground-truth target_instances, exactly as in the TreeBench reference implementation's
-    compute_box_iou (inference_treebench.py): for each target box, take the best IoU
-    among all predicted boxes, then average over targets.
-    """
+    #Average IoU between <box>[x1,y1,x2,y2]</box> boxes in the prediction and the ground-truth target_instances
     pattern = r"<box>(.*?)</box>"
     matches = re.findall(pattern, predict_str, re.DOTALL)
 
@@ -117,11 +113,14 @@ def resolve_local_model_path(model_path_or_id: str, project_root: str) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
-    ap.add_argument("--use-grit", action="store_true")
-    ap.add_argument("--no-supervisor", action="store_true",
-                     help="Skip the ECRD supervisor (negotiated reweighting) entirely and run plain "
-                          "decoding -- the paper's raw Base row. Incompatible with --use-grit, "
-                          "since the visual decider is only invoked through the supervisor's trigger.")
+    mode_group = ap.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument("--base", action="store_true",
+                             help="Raw decoding: no ECRD supervisor, no GRIT decider (paper's Base row).")
+    mode_group.add_argument("--supervisor", action="store_true",
+                             help="ECRD supervisor (negotiated reweighting) without the GRIT visual decider "
+                                  "(paper's '+supervisor' row).")
+    mode_group.add_argument("--ecrd", action="store_true",
+                             help="Full ECRD: supervisor + GRIT visual decider (paper's '+ECRD' row).")
     ap.add_argument("--grit-model", default="weights/GRIT-20-Qwen2.5-VL-3B")
     ap.add_argument("--delta", type=float, default=0.08)
     ap.add_argument("--collect-calib-log", default=None,
@@ -129,7 +128,8 @@ def main():
                           "to this path, for use with scripts/calib/build_calibration.py")
     ap.add_argument("--load-in-4bit", action="store_true", help="Load base model in 4-bit")
     ap.add_argument("--grit-in-4bit", action="store_true", help="Load GRIT model in 4-bit")
-    ap.add_argument("--grit-device", default="cpu", help="Device to run GRIT model on (e.g., cpu, 0)")
+    ap.add_argument("--device", default="cuda:0", help="Device to run the base model on (e.g., cuda:0)")
+    ap.add_argument("--grit-device", default="0", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--max-new-tokens", type=int, default=1024, help="Reference implementation default is 1024")
     ap.add_argument("--min-pixels", type=int, default=256*28*28)
     ap.add_argument("--max-pixels", type=int, default=1280*28*28)
@@ -137,9 +137,8 @@ def main():
     ap.add_argument("--data-dir", default=None, help="Directory for local dataset (default: data/TreeBench)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
     args = ap.parse_args()
-    if args.no_supervisor and args.use_grit:
-        ap.error("--no-supervisor and --use-grit are incompatible: the visual decider is only "
-                  "invoked through the supervisor's trigger.")
+    use_supervisor = args.supervisor or args.ecrd
+    use_grit = args.ecrd
 
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     os.environ["HF_HOME"] = os.path.join(project_root, ".cache")
@@ -174,8 +173,10 @@ def main():
     model_path = resolve_local_model_path(args.model, project_root)
     is_local_model = os.path.isdir(model_path)
 
+    # Keep the whole model on one GPU: device_map="auto" shards Qwen2.5-VL across
+    # the visible GPUs, which makes it decode "!!!!..." instead of real text.
     model_kwargs = {
-        "device_map": "auto",
+        "device_map": args.device,
         "trust_remote_code": True,
     }
     if is_local_model:
@@ -210,7 +211,7 @@ def main():
         ).eval()
 
     grit = None
-    if args.use_grit:
+    if use_grit:
         grit_path = resolve_local_model_path(args.grit_model, project_root)
         print(f"Initializing GRIT model from: {grit_path}")
         grit = GRITClient(
@@ -278,7 +279,7 @@ def main():
         try:
             logits_processors = []
             proc = None
-            if not args.no_supervisor:
+            if use_supervisor:
                 desc = generate_global_description(model, processor, image, full_question, args.min_pixels, args.max_pixels)
                 scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
                 scorer.add_evidence(Evidence(id="global-0", text=desc, source="global", time_step=0))
@@ -309,11 +310,7 @@ def main():
 
             gen = model.generate(
                 **inputs,
-                do_sample=True,
-                top_p=0.001,
-                top_k=1,
-                temperature=0.01,
-                repetition_penalty=1.0,
+                do_sample=False,
                 use_cache=True,
                 max_new_tokens=args.max_new_tokens,
                 logits_processor=LogitsProcessorList(logits_processors),
@@ -444,13 +441,14 @@ def main():
     output_data = {
         "metadata": {
             "model": args.model,
-            "use_grit": args.use_grit,
-            "no_supervisor": args.no_supervisor,
-            "grit_model": args.grit_model if args.use_grit else None,
+            "mode": "ecrd" if use_grit else ("supervisor" if use_supervisor else "base"),
+            "use_supervisor": use_supervisor,
+            "use_grit": use_grit,
+            "grit_model": args.grit_model if use_grit else None,
             "delta": args.delta,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "total_samples": overall_total,
-            "total_grit_invocations": sum(d["grit_invocations"] or 0 for d in details) if args.use_grit else None,
+            "total_grit_invocations": sum(d["grit_invocations"] or 0 for d in details) if use_grit else None,
         },
         "summary": {
             "overall": {
@@ -488,7 +486,7 @@ def main():
     }
     
     clean_model_name = args.model.split("/")[-1].lower()
-    mode = "grit" if args.use_grit else ("base" if args.no_supervisor else "supervisor")
+    mode = "ecrd" if use_grit else ("supervisor" if use_supervisor else "base")
     output_file = os.path.join(out_dir, f"treebench_{clean_model_name}_{mode}.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(output_data, f, indent=2, ensure_ascii=False)
