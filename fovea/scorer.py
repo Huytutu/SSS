@@ -4,10 +4,10 @@ from typing import Any, Optional
 import torch
 import torch.nn.functional as F
 
-__all__ = ["PromptDeviationScorer"]
+__all__ = ["TextScorer"]
 
 
-class PromptDeviationScorer:
+class TextScorer:
     """VDGD prompt-deviation scorer (eq. 3).
 
     KL(one_hot(w_k) || p_VLM(.|x_<j)) reduces exactly to -log p_VLM(w_k|x_<j)
@@ -49,14 +49,21 @@ class PromptDeviationScorer:
     def set_prompt(self, **model_inputs: Any) -> None:
         """model_inputs = full processor output (input_ids, pixel_values,
         image_grid_thw, attention_mask, ...) for the description-prefixed
-        prompt. Caches p_VLM(.|x_<j) for every prompt position j via one
-        teacher-forced forward pass: logits[:, t, :] predicts the token at
-        position t+1, so logits[:, :-1, :] gives exactly the "predict the
-        next prompt token" distributions eq. 3 needs (all j except j=1, the
-        empty-prefix case, which is a single negligible row out of a prompt
-        that is typically hundreds to thousands of tokens)."""
+        prompt. Runs one teacher-forced forward pass and caches p_VLM(.|x_<j)
+        for every prompt position j via _cache_from_logits (see there for why
+        logits[:, :-1, :] is exactly what eq. 3 needs)."""
         out = self.backend_model(**model_inputs, use_cache=False)
-        logits = out.logits[0, :-1, :]
+        self._cache_from_logits(out.logits)
+
+    def _cache_from_logits(self, logits: torch.Tensor) -> None:
+        """logits[:, t, :] predicts the token at position t+1, so
+        logits[:, :-1, :] gives exactly the "predict the next prompt token"
+        distributions eq. 3 needs (all j except j=1, the empty-prefix case,
+        which is a single negligible row out of a prompt that is typically
+        hundreds to thousands of tokens). Split out so a shared forward pass
+        (e.g. also feeding VisionScorer) can call this directly instead of
+        set_prompt running its own forward."""
+        logits = logits[0, :-1, :]
         self._vocab_size = int(logits.shape[-1])
         logp = F.log_softmax(logits.to(torch.float32), dim=-1)
         self._neg_logp = (-logp).to(torch.float16).cpu()
@@ -67,7 +74,7 @@ class PromptDeviationScorer:
         prompt confidently anticipated this token (grounded); higher = no
         prompt position supports it (deviation / hallucination risk)."""
         if self._neg_logp is None:
-            raise RuntimeError("PromptDeviationScorer.set_prompt() must be called before scoring.")
+            raise RuntimeError("TextScorer.set_prompt() must be called before scoring.")
         if cand_idx.dim() == 0:
             cand_idx = cand_idx.unsqueeze(0)
         cand_idx = cand_idx.to(dtype=torch.long, device="cpu")

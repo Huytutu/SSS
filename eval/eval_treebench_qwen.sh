@@ -27,5 +27,7 @@ python "${PROJECT_ROOT}/eval/eval_treebench_qwen.py" \
 
 
 
-# bash eval/eval_treebench_qwen.sh --method base --limit 20
-# bash eval/eval_treebench_qwen.sh --method vdgd
+# bash eval/eval_treebench_qwen.sh --method base                              # base thuần
+# bash eval/eval_treebench_qwen.sh --method base --use-vision-grounding       # base + vision (ReVisiT gốc)
+# bash eval/eval_treebench_qwen.sh --method vdgd                              # vdgd thuần
+# bash eval/eval_treebench_qwen.sh --method vdgd --use-vision-grounding       # vdgd + vision

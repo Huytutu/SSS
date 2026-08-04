@@ -78,6 +78,10 @@ def main():
     ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
     ap.add_argument("--min-k", type=int, default=None, help="VDGD knee-truncation floor (vdgd only)")
     ap.add_argument("--max-k", type=int, default=None, help="VDGD knee-truncation ceiling (vdgd only)")
+    ap.add_argument("--use-vision-grounding", action="store_true",
+                    help="Add ReVisiT-style vision-token grounding. With --method vdgd this adds vision "
+                         "grounding on top of VDGD's text grounding; with --method base it runs plain "
+                         "ReVisiT (base + vision only, no description)")
     ap.add_argument("--max-new-tokens", type=int, default=1024)
     ap.add_argument("--min-pixels", type=int, default=256 * 28 * 28)
     ap.add_argument("--max-pixels", type=int, default=1280 * 28 * 28)
@@ -85,6 +89,11 @@ def main():
     ap.add_argument("--data-dir", default=None, help="Directory for local dataset (default: data/TreeBench)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
     args = ap.parse_args()
+
+    # Distinguishes output files/logs across the four method x vision-grounding
+    # combinations (e.g. "base" vs "base_vision" -- plain ReVisiT -- would
+    # otherwise both be labeled "base" and overwrite each other's results).
+    run_label = args.method + ("_vision" if args.use_vision_grounding else "")
 
     # .../SSS (two dirname calls up from eval/eval_treebench_qwen.py)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -113,7 +122,7 @@ def main():
     other_stats = {}
     details = []
 
-    pbar = tqdm(dataset, desc=f"Evaluating TreeBench ({args.method})")
+    pbar = tqdm(dataset, desc=f"Evaluating TreeBench ({run_label})")
     for row in pbar:
         image = row.get("image")
         question_text = row.get("question")
@@ -138,18 +147,23 @@ def main():
             full_question += " Options:\n" + options_text
 
         try:
-            if args.method == "base":
+            if args.method == "base" and not args.use_vision_grounding:
                 prediction_text = qwen_base(
                     image, full_question, model=model, processor=processor,
                     min_pixels=args.min_pixels, max_pixels=args.max_pixels,
                     max_new_tokens=args.max_new_tokens,
                 )
             else:
+                # method=="vdgd" -> text grounding on; method=="base" -> text
+                # grounding off, so --use-vision-grounding alone gives plain
+                # ReVisiT (base + vision, no description).
                 prediction_text, _description = qwen_vdgd(
                     image, full_question, model=model, processor=processor,
                     min_pixels=args.min_pixels, max_pixels=args.max_pixels,
                     min_k=args.min_k, max_k=args.max_k,
                     max_new_tokens=args.max_new_tokens,
+                    use_vision_grounding=args.use_vision_grounding,
+                    use_text_grounding=(args.method == "vdgd"),
                 )
 
             pred_ans = extract_answer(prediction_text)
@@ -185,7 +199,7 @@ def main():
             continue
 
     print("\n" + "=" * 70)
-    print(f"TreeBench Evaluation Results Summary ({args.method})")
+    print(f"TreeBench Evaluation Results Summary ({run_label})")
     print("=" * 70)
 
     print("\n--- [Perception Categories] ---")
@@ -240,8 +254,10 @@ def main():
         "metadata": {
             "model": args.model,
             "method": args.method,
+            "run_label": run_label,
             "min_k": args.min_k,
             "max_k": args.max_k,
+            "use_vision_grounding": args.use_vision_grounding,
             "max_new_tokens": args.max_new_tokens,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "total_samples": overall_total,
