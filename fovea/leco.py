@@ -1,14 +1,17 @@
 from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import math
 import re
 
 import torch
 from transformers import LogitsProcessor
 from transformers.generation import LogitsProcessorList
 
+from .step_filter import is_structural_step
+
 __all__ = [
-    "segment_steps", "score_step", "find_lowest_scoring_step", "leco_loop",
+    "segment_steps", "score_step", "step_dev_cost", "find_lowest_scoring_step", "leco_loop",
     "NegativeGuidanceLogitsProcessor", "MTI_PAPER_MARKER",
 ]
 
@@ -58,48 +61,108 @@ def segment_steps(token_ids: List[int], tokenizer, answer_start_idx: Optional[in
     return ranges
 
 
-def _kl_to_uniform(probs: torch.Tensor, tau: float) -> float:
-    """KL(softmax(logits/tau) || uniform) over the candidate set -- how far the
-    (temperature-rescaled) distribution is from spread-evenly, i.e. how peaked it is."""
-    n = probs.numel()
-    if n <= 1:
-        return 0.0
-    logits = torch.log(probs.clamp_min(1e-12)) / max(tau, 1e-6)
-    p = torch.softmax(logits, dim=-1)
-    uniform = 1.0 / n
-    kl = (p * (torch.log(p.clamp_min(1e-12)) - torch.log(torch.tensor(uniform)))).sum()
-    return float(kl.item())
+def step_dev_cost(step_log_slice: List[Dict[str, Any]], dev_quantile: float = 0.9) -> float:
+    """High quantile of a step's per-token deviation cost -- see score_step's
+    `dev_score` docstring for why the quantile (not the mean) is used. Exposed
+    separately so callers can compute all steps' costs first and build
+    `dev_stats` for score_step (see leco_loop)."""
+    dev_costs = torch.tensor([r["dev_cost"] for r in step_log_slice])
+    return float(torch.quantile(dev_costs, dev_quantile))
 
 
 def score_step(
     step_log_slice: List[Dict[str, Any]],
     next_step_head: List[Dict[str, Any]],
     K: int = 3,
-    tau: float = 0.3,
+    dev_quantile: float = 0.9,
+    dev_stats: Optional[Tuple[float, float]] = None,
+    dev_temperature: float = 1.0,
+    dev_weight: float = 0.5,
 ) -> float:
-    """LeCo step confidence: avg_score + trans_score - diver_score.
+    """LeCo step confidence: avg_score + trans_score - diver_score - dev_score.
 
-    avg_score: mean top1 (chosen-token) probability across the step's tokens.
-    diver_score: mean KL(rescaled candidate-set probs || uniform) -- high when the
-        candidate distribution stays spread out (uncertain) rather than peaked.
-    trans_score: mean top1 probability over the first K tokens of the *next* step
+    All four terms read `true_prob` / `dev_cost` logged by VDGDLogitsProcessor
+    from the model's pre-rescore distribution -- not the VDGD-rescored
+    (prompt-deviation) distribution, which reflects grounding cost rather than
+    the model's own confidence and would otherwise collapse all four terms
+    onto a single upstream signal (how many candidates knee-truncation kept).
+
+    avg_score: mean true probability of the chosen token across the step's tokens.
+    diver_score: 1 - H(P)/log(n), where P is the normalized distribution of those
+        same per-token true probabilities across the step's n positions. 0 when
+        confidence is flat across the step (ideal), -> 1 as it spikes on a few
+        tokens while the rest are near-zero. Entropy-normalized so it's bounded
+        to [0, 1] and comparable across step lengths, unlike a raw KL average.
+    trans_score: mean true probability over the first K tokens of the *next* step
         (heading tokens). If there is no next step, defaults to this step's own
         avg_score (neutral) rather than 0 -- 0 would structurally under-score every
         terminal step regardless of its actual confidence, biasing rollback toward
         the last step (typically a trivial "Therefore, the answer is:" transition
         in this pipeline's free-form CoT) instead of a genuine low-confidence one.
+    dev_score: grounding term -- how ungrounded the step's tokens are in the
+        image-conditioned prompt, from PromptDeviationScorer's cost on the
+        actually-chosen token. Uses a high quantile rather than the mean, since
+        one ungrounded token (e.g. a hallucinated object) should dominate over
+        many well-grounded filler tokens.
+
+        `dev_stats`, if given, is the (mean, std) of `step_dev_cost` across all
+        steps in the same generation (see leco_loop). Deviation cost is only
+        near zero for near-verbatim claims (e.g. a color copied from the
+        earlier description) and otherwise spans a wide range that a fixed
+        absolute squash (e.g. 1 - e^-x) saturates well before the top of, so
+        genuinely fabricated steps end up scored the same as ordinary
+        reasoning scaffolding -- hence z-scoring against the generation's own
+        mean/std before squashing. A first attempt min-max'd against
+        (min, max) instead, but that forces the single highest-cost step to
+        dev_score=1.0 in *every* generation regardless of how large the
+        actual spread is -- since real deviation cost varies far more than
+        avg/trans/diver do step-to-step, that mechanically made dev_score the
+        largest-variance term and let it override the other three whenever
+        they disagreed (confirmed empirically: on one trace the argmin of
+        avg+trans-diver alone picked a different step than the full sum).
+        `dev_temperature` controls how sharply z-scores are pushed toward
+        0/1 by the sigmoid -- higher softens (smaller dev_score variance,
+        less influence on the sum), lower sharpens. Falls back to the fixed
+        1 - e^-x squash when no stats are given (e.g. scoring a single step
+        in isolation).
     """
     if not step_log_slice:
         return 0.0
-    avg_score = sum(r["top1_prob"] for r in step_log_slice) / len(step_log_slice)
-    diver_score = sum(_kl_to_uniform(r["cand_probs"], tau) for r in step_log_slice) / len(step_log_slice)
+    true_probs = torch.tensor([r["true_prob"] for r in step_log_slice])
+    avg_score = float(true_probs.mean())
+
+    n = true_probs.numel()
+    if n <= 1:
+        diver_score = 0.0
+    else:
+        p = true_probs / true_probs.sum()
+        entropy = float(-(p * torch.log(p.clamp_min(1e-12))).sum())
+        diver_score = 1.0 - entropy / math.log(n)
+
     head = next_step_head[:K]
-    trans_score = sum(r["top1_prob"] for r in head) / len(head) if head else avg_score
-    return avg_score + trans_score - diver_score
+    trans_score = sum(r["true_prob"] for r in head) / len(head) if head else avg_score
+
+    dev_cost_q = step_dev_cost(step_log_slice, dev_quantile)
+    if dev_stats is None:
+        dev_score = 1.0 - math.exp(-dev_cost_q)
+    else:
+        dev_mean, dev_std = dev_stats
+        z = (dev_cost_q - dev_mean) / (dev_std + 1e-6)
+        dev_score = 1.0 / (1.0 + math.exp(-z / max(dev_temperature, 1e-6)))
+
+    return avg_score + trans_score - diver_score - dev_weight * dev_score
 
 
-def find_lowest_scoring_step(scores: List[float]) -> int:
-    return int(min(range(len(scores)), key=lambda i: scores[i]))
+def find_lowest_scoring_step(scores: List[float], exclude: Optional[set] = None) -> int:
+    """argmin(scores), skipping any index in `exclude` (e.g. the terminal
+    pre-<answer> step, or steps flagged by is_structural_step -- see
+    leco_loop). Falls back to considering every index if `exclude` would
+    otherwise leave nothing to choose from."""
+    exclude = exclude or set()
+    candidates = [i for i in range(len(scores)) if i not in exclude]
+    if not candidates:
+        candidates = list(range(len(scores)))
+    return min(candidates, key=lambda i: scores[i])
 
 
 class NegativeGuidanceLogitsProcessor(LogitsProcessor):
@@ -261,16 +324,30 @@ def leco_loop(
         if len(ranges) <= 1:
             break
 
+        # Mean/std of deviation cost across this generation's own steps -- see
+        # score_step's `dev_stats` docstring for why z-scoring (not a fixed
+        # absolute squash, and not min-max) is used.
+        step_dev_costs = torch.tensor([step_dev_cost(proc.step_log[a:b]) for (a, b) in ranges])
+        dev_stats = (float(step_dev_costs.mean()), float(step_dev_costs.std(unbiased=False)))
+
         step_scores = [
-            score_step(proc.step_log[a:b], proc.step_log[ranges[j + 1][0]:ranges[j + 1][0] + 3])
-            if j + 1 < len(ranges) else score_step(proc.step_log[a:b], [])
+            score_step(
+                proc.step_log[a:b],
+                proc.step_log[ranges[j + 1][0]:ranges[j + 1][0] + 3] if j + 1 < len(ranges) else [],
+                dev_stats=dev_stats,
+            )
             for j, (a, b) in enumerate(ranges)
         ]
-        # Exclude the last step from candidacy: it's the segment right before
-        # <answer>, typically a trivial "Therefore, the answer is:" transition
-        # rather than reasoning -- rolling back into it discards nothing
-        # substantive and just reproduces the same continuation deterministically.
-        bad = find_lowest_scoring_step(step_scores[:-1])
+        # Exclude the last step (segment right before <answer>, typically a
+        # trivial transition -- rolling back into it discards nothing
+        # substantive) and any structural step (formatting/header/transition
+        # line, or an option echo) from rollback candidacy: these score low
+        # regardless of content and otherwise hijack rollback away from the
+        # step that actually contains the error -- see step_filter.py.
+        step_texts = [tokenizer.decode(cont_ids[a:b], skip_special_tokens=True) for (a, b) in ranges]
+        exclude = {len(ranges) - 1}
+        exclude |= {i for i, t in enumerate(step_texts) if is_structural_step(t)}
+        bad = find_lowest_scoring_step(step_scores, exclude=exclude)
         record["step_scores"] = step_scores
         record["rollback_step"] = bad
         if bad == 0:

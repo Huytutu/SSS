@@ -22,17 +22,21 @@ def qwen_leco(
     max_k: Optional[int] = None,
     max_new_tokens: int = 1024,
     max_iters: int = 3,
+    one_shot: bool = False,
 ):
     """LeCo (arXiv:2403.19094) applied on top of VDGD: same describe -> prefix ->
     prime-scorer setup as qwen_vdgd, then an iterative loop that rolls back to the
     lowest-confidence reasoning step and regenerates -- still through the same
     VDGDLogitsProcessor each round -- until two consecutive answers agree or
-    `max_iters` is reached. Returns (answer, description, n_iters)."""
+    `max_iters` is reached. Returns (answer, description, n_iters).
+
+    `one_shot`, if True, primes the answer-generation prompt with
+    ONE_SHOT_REASONING_EXAMPLE -- see build_vdgd_processor's docstring."""
     if model is None or processor is None:
         model, processor = load_qwen(model_path)
 
     proc, gen_config, augmented_question, description = build_vdgd_processor(
-        model, processor, image, question, min_pixels, max_pixels, min_k, max_k
+        model, processor, image, question, min_pixels, max_pixels, min_k, max_k, one_shot=one_shot
     )
     proc.collect_step_log = True
 

@@ -7,7 +7,7 @@ import torch
 from qwen_vl_utils import process_vision_info
 from transformers.generation import LogitsProcessorList
 
-from SSS.fovea import PromptDeviationScorer, VDGDLogitsProcessor, GLOBAL_DESCRIPTION_PROMPT
+from SSS.fovea import PromptDeviationScorer, VDGDLogitsProcessor, GLOBAL_DESCRIPTION_PROMPT, ONE_SHOT_REASONING_EXAMPLE
 from .qwen_base import DEFAULT_MODEL_PATH, load_qwen, build_messages
 
 __all__ = ["build_messages", "generate_description", "build_vdgd_processor", "qwen_vdgd"]
@@ -56,6 +56,7 @@ def build_vdgd_processor(
     max_pixels: Optional[int] = None,
     min_k: Optional[int] = None,
     max_k: Optional[int] = None,
+    one_shot: bool = False,
 ):
     """VDGD end-to-end for Qwen2.5-VL: generate the image description,
     concatenate it as a prefix to the prompt, prime the scorer on that
@@ -64,9 +65,17 @@ def build_vdgd_processor(
     Returns (proc, gen_config, augmented_question). The caller must generate
     against `augmented_question`, not the original `question` -- that's the
     "concatenate the generated description as a prefix" step from the paper.
+
+    `one_shot`, if True, inserts ONE_SHOT_REASONING_EXAMPLE between the
+    description and the real question -- see that constant's docstring in
+    fovea/prompts.py. Only affects the final answer-generation prompt; the
+    description step above still runs on the plain `question`, so the
+    "describe the image" instruction isn't polluted by the example. Off by
+    default: validated on a single example so far, not a general default.
     """
     description = generate_description(model, processor, image, question, min_pixels, max_pixels)
-    augmented_question = f"{description}\n\n{question}"
+    one_shot_prefix = ONE_SHOT_REASONING_EXAMPLE if one_shot else ""
+    augmented_question = f"{description}\n\n{one_shot_prefix}{question}"
 
     messages = build_messages(image, augmented_question, min_pixels, max_pixels)
     chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -97,6 +106,7 @@ def qwen_vdgd(
     min_k: Optional[int] = None,
     max_k: Optional[int] = None,
     max_new_tokens: int = 1024,
+    one_shot: bool = False,
 ):
     """Same shape as qwen_base.qwen_base: load-if-needed, generate, decode.
     Pass an already-loaded model/processor to reuse them for a fair,
@@ -105,7 +115,7 @@ def qwen_vdgd(
         model, processor = load_qwen(model_path)
 
     proc, gen_config, augmented_question, description = build_vdgd_processor(
-        model, processor, image, question, min_pixels, max_pixels, min_k, max_k
+        model, processor, image, question, min_pixels, max_pixels, min_k, max_k, one_shot=one_shot
     )
 
     messages = build_messages(image, augmented_question, min_pixels, max_pixels)

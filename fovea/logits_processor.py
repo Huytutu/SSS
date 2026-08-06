@@ -85,12 +85,21 @@ class VDGDLogitsProcessor(LogitsProcessor):
             scores[i, :] = new_logits_i.to(dtype=dtype)
 
             if self.collect_step_log:
-                cand_probs = torch.softmax(new_logits_i[cand_idx], dim=-1)
+                # Generation is always greedy in this pipeline (do_sample=False),
+                # so the token that will actually be emitted is the one with the
+                # lowest prompt-deviation cost among the candidates.
+                chosen_local = int(torch.argmin(KL_i).item())
+                chosen_id = int(cand_idx[chosen_local].item())
                 self.step_log.append({
                     "step": self._step,
-                    "top1_prob": float(cand_probs.max().item()),
-                    "cand_probs": cand_probs.detach().cpu(),
-                    "cand_ids": cand_idx.detach().cpu(),
+                    # Model's own pre-rescore confidence in the chosen token --
+                    # NOT the VDGD-rescored distribution, which reflects prompt-
+                    # deviation cost rather than the model's belief. LeCo's
+                    # confidence terms (fovea/leco.py) need this one.
+                    "true_prob": float(probs_i[chosen_id].item()),
+                    # Prompt-deviation cost of the chosen token -- the grounding
+                    # signal, kept separate so it doesn't overwrite confidence.
+                    "dev_cost": float(KL_i[chosen_local].item()),
                 })
 
         self._step += 1
