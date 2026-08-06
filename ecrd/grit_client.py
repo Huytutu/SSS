@@ -42,7 +42,59 @@ PROMPT_TEMPLATE = (
     "- Never include candidate text, indexes, or any part of the prefix in <evidence>.\n"
 )
 
+# Segment-level counterpart to PROMPT_TEMPLATE. That one can only pick among
+# candidate tokens the base model already proposed; this one lets GRIT propose
+# a consideration the base model never surfaced at all. Follows GRIT's own
+# training format (paper Appendix D: think -> rethink -> answer), with the
+# reasoning-so-far supplied as context since GRIT normally starts fresh.
+RETHINK_PROMPT_TEMPLATE = (
+    "Question: {question}\n\n"
+    "A model has produced the following reasoning so far, but has NOT finished:\n"
+    "---\n"
+    "{prefix}\n"
+    "---\n\n"
+    "The reasoning above may be missing something the question actually requires "
+    "(for example a spatial relation, an attribute, or a step it never considered).\n\n"
+    "First, think between <think> and </think>, outputting any coordinates you need in "
+    "JSON with key 'bbox_2d'. Then, based on your thinking and coordinates, rethink "
+    "between <rethink> and </rethink>: state explicitly what the reasoning above missed "
+    "or got wrong, and what should be considered instead. Then give the answer after "
+    "<answer>.\n\n"
+    "Return the blocks in this order and nothing else:\n"
+    "<think>...</think>\n"
+    "<rethink>...</rethink>\n"
+    "<answer>...</answer>\n"
+)
+
+# Grounded counterpart to RETHINK_PROMPT_TEMPLATE. That one asks GRIT to
+# invent a consideration from scratch, which risks asserting a confident but
+# wrong visual claim (observed empirically: a 3B free-form rethink broke
+# correct answers by hallucinating spatial relations). This instead shows
+# GRIT the two concrete continuations the base model's own decoding already
+# produced at a near-tie fork (original vs. forced-runner-up token), so it
+# judges between two grounded options rather than generating an unconstrained
+# critique.
+JUDGE_PROMPT_TEMPLATE = (
+    "Question: {question}\n\n"
+    "A reasoning process reached a fork point. Before the fork, this reasoning had already been "
+    "established:\n"
+    "---\n{prefix}\n---\n\n"
+    "From that point, two different continuations were tried:\n\n"
+    "Continuation 1:\n{cont1}\n\n"
+    "Continuation 2:\n{cont2}\n\n"
+    "Look at the image and judge which continuation is actually consistent with what it shows. "
+    "First think between <think> and </think>, outputting any coordinates you need as JSON with key "
+    "'bbox_2d'. Then, based on your thinking, rethink between <rethink> and </rethink>: state which "
+    "continuation (1 or 2) is correct and why, referencing the image. Then give the final answer "
+    "after <answer>.\n\n"
+    "Return the blocks in this order and nothing else:\n"
+    "<think>...</think>\n"
+    "<rethink>...</rethink>\n"
+    "<answer>...</answer>\n"
+)
+
 _ANS_RE = re.compile(r"<answer>\s*(.*?)\s*</answer>", flags=re.S | re.I)
+_RETHINK_RE = re.compile(r"<rethink>\s*(.*?)\s*</rethink>", flags=re.S | re.I)
 _EVID_RE = re.compile(r"<evidence>\s*(.*?)\s*</evidence>", flags=re.S | re.I)
 _THINK_LEAD = re.compile(r"^\s*<think>[\s\S]*?</think>\s*", flags=re.I)
 _ASSISTANT_MARKERS = ["\nassistant\n", "\nAssistant:\n", "ASSISTANT:\n", "<|im_start|>assistant", "<|im_start|> assistant", "\n### Assistant:\n"]
@@ -304,3 +356,131 @@ class GRITClient:
         if return_prompt:
             ret["prompt_text"] = prompt_text
         return ret
+
+    @torch.inference_mode()
+    def rethink_segment(
+        self,
+        image: Union[str, Any],
+        question: str,
+        prefix_text: str,
+        max_new_tokens: int = 200,
+        max_prefix_chars: int = 2000,
+        debug: bool = False,
+    ) -> Dict[str, Any]:
+        """Ask GRIT to reconsider a whole reasoning segment, not one token.
+
+        Unlike decide_next_token, which is confined to candidates the base
+        model already proposed, this can surface a consideration that never
+        entered the base model's candidate set at all. Returns the <rethink>
+        and <answer> spans; the caller decides what to do with them.
+        """
+        if process_vision_info is None:
+            raise RuntimeError("qwen_vl_utils is required for GRITClient. Install with `pip install qwen-vl-utils`.")
+
+        prefix = _strip_leading_think(_tail_after_last_assistant(prefix_text or "")).strip()
+        if max_prefix_chars > 0 and len(prefix) > max_prefix_chars:
+            prefix = prefix[-max_prefix_chars:]
+
+        prompt = RETHINK_PROMPT_TEMPLATE.format(question=question or "", prefix=prefix)
+        messages = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt}]}]
+        if debug:
+            print("\n[GRIT-RETHINK] --- Prompt ---")
+            print(prompt)
+            print("[GRIT-RETHINK] --- /Prompt ---\n")
+
+        chat_text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        img_inputs, vid_inputs = process_vision_info(messages)
+        inputs = self.processor(text=[chat_text], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(self.model.device)
+
+        from copy import copy
+        gen_cfg = copy(self.model.generation_config)
+        gen_cfg.max_new_tokens = max_new_tokens
+        gen_cfg.do_sample = False
+        gen_cfg.temperature = None
+        gen_cfg.top_k = None
+        gen_cfg.top_p = None
+        stopper = _EndsWithAny(self.processor.tokenizer, ["</answer>"], start_len=int(inputs.input_ids.shape[1]))
+        gen_ids = self.model.generate(**inputs, generation_config=gen_cfg, stopping_criteria=StoppingCriteriaList([stopper]), use_cache=True)
+        out = self.processor.batch_decode(gen_ids[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        out = _strip_leading_bbox_json(out)
+        if debug:
+            print("[GRIT-RETHINK] raw output:\n", out)
+
+        rethink_text = _extract_between(out, _RETHINK_RE)
+        answer_text = _extract_between(out, _ANS_RE)
+
+        self._write_trace({
+            "kind": "rethink_segment",
+            "image": image if isinstance(image, str) else "<obj>",
+            "prompt_text": prompt,
+            "raw_output": out,
+            "parsed": {"rethink_text": rethink_text, "answer_text": answer_text},
+        })
+        return {"rethink_text": rethink_text, "answer_text": answer_text, "raw_text": out}
+
+    @torch.inference_mode()
+    def judge_branches(
+        self,
+        image: Union[str, Any],
+        question: str,
+        prefix_text: str,
+        continuation_a: str,
+        continuation_b: str,
+        max_new_tokens: int = 220,
+        max_prefix_chars: int = 2000,
+        max_cont_chars: int = 800,
+        debug: bool = False,
+    ) -> Dict[str, Any]:
+        """Ask GRIT to judge between two concrete continuations from a fork.
+
+        Grounded version of rethink_segment: instead of inventing a critique
+        from nothing, GRIT is shown what the base model's own decoding
+        actually produced on both sides of a near-tie fork and picks between
+        them. Returns the <rethink> and <answer> spans; the caller decides
+        what to do with them.
+        """
+        if process_vision_info is None:
+            raise RuntimeError("qwen_vl_utils is required for GRITClient. Install with `pip install qwen-vl-utils`.")
+
+        prefix = _strip_leading_think(_tail_after_last_assistant(prefix_text or "")).strip()
+        if max_prefix_chars > 0 and len(prefix) > max_prefix_chars:
+            prefix = prefix[-max_prefix_chars:]
+        cont_a = (continuation_a or "").strip()[:max_cont_chars]
+        cont_b = (continuation_b or "").strip()[:max_cont_chars]
+
+        prompt = JUDGE_PROMPT_TEMPLATE.format(question=question or "", prefix=prefix, cont1=cont_a, cont2=cont_b)
+        messages = [{"role": "user", "content": [{"type": "image", "image": image}, {"type": "text", "text": prompt}]}]
+        if debug:
+            print("\n[GRIT-JUDGE] --- Prompt ---")
+            print(prompt)
+            print("[GRIT-JUDGE] --- /Prompt ---\n")
+
+        chat_text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        img_inputs, vid_inputs = process_vision_info(messages)
+        inputs = self.processor(text=[chat_text], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(self.model.device)
+
+        from copy import copy
+        gen_cfg = copy(self.model.generation_config)
+        gen_cfg.max_new_tokens = max_new_tokens
+        gen_cfg.do_sample = False
+        gen_cfg.temperature = None
+        gen_cfg.top_k = None
+        gen_cfg.top_p = None
+        stopper = _EndsWithAny(self.processor.tokenizer, ["</answer>"], start_len=int(inputs.input_ids.shape[1]))
+        gen_ids = self.model.generate(**inputs, generation_config=gen_cfg, stopping_criteria=StoppingCriteriaList([stopper]), use_cache=True)
+        out = self.processor.batch_decode(gen_ids[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+        out = _strip_leading_bbox_json(out)
+        if debug:
+            print("[GRIT-JUDGE] raw output:\n", out)
+
+        rethink_text = _extract_between(out, _RETHINK_RE)
+        answer_text = _extract_between(out, _ANS_RE)
+
+        self._write_trace({
+            "kind": "judge_branches",
+            "image": image if isinstance(image, str) else "<obj>",
+            "prompt_text": prompt,
+            "raw_output": out,
+            "parsed": {"rethink_text": rethink_text, "answer_text": answer_text},
+        })
+        return {"rethink_text": rethink_text, "answer_text": answer_text, "raw_text": out}

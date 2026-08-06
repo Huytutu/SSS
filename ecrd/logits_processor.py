@@ -76,6 +76,7 @@ class ECRDLogitsProcessor(LogitsProcessor):
         collect_calibration_log: bool = False,
         calib_min_k: int = 2,
         calib_cooldown: int = 5,
+        collect_branch_checkpoints: bool = False,
     ):
         super().__init__()
         self.scorer = scorer
@@ -123,6 +124,14 @@ class ECRDLogitsProcessor(LogitsProcessor):
         # Counts every time the trigger fires and the GRIT decider is actually called,
         # for comparing invocation rate across trigger implementations (gap vs conformal).
         self.grit_invocations = 0
+
+        # Optional: record near-tie steps so branch_probe can later re-run each one
+        # with the runner-up token forced and see whether the final answer changes.
+        # Records the top-2 ids of the *effective* (mixed) distribution, i.e. what
+        # decoding actually sampled from. Assumes batch size 1, like the GRIT hook.
+        self.collect_branch_checkpoints = bool(collect_branch_checkpoints)
+        self.branch_checkpoints: List[Dict[str, Any]] = []
+        self._branch_gap_thresh = _env_float("ECRD_BRANCH_GAP_THRESH", 0.08)
 
     def _calib_gate_eligible(self, info: Dict[str, Any]) -> bool:
         if info["k"] < self._calib_min_k:
@@ -208,6 +217,16 @@ class ECRDLogitsProcessor(LogitsProcessor):
                 alpha_eff=alpha_eff if alpha_eff is not None else None,
             )
             self.last_info.append(info)
+
+            if self.collect_branch_checkpoints and k_i >= 2 and gap <= self._branch_gap_thresh:
+                top2 = info["top_ids"]
+                if top2.numel() >= 2:
+                    self.branch_checkpoints.append({
+                        "step": info["step"],
+                        "gap": gap,
+                        "rank0_id": int(top2[0].item()),
+                        "rank1_id": int(top2[1].item()),
+                    })
 
             if (self._grit_hook is not None) and (self._trigger is not None):
                 try:

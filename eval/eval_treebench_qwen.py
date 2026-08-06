@@ -1,12 +1,14 @@
 #!/usr/bin/env python
-"""Evaluate TreeBench with the base Qwen2.5-VL decoder or with VDGD decoding.
+"""Evaluate TreeBench with the base Qwen2.5-VL decoder, VDGD decoding, or LeCo-on-VDGD.
 
-Both decoders come from SSS.inference (qwen_base / qwen_vdgd) -- this script
-only adds dataset loading, category bookkeeping, and JSON reporting around them.
+All three decoders come from SSS.inference (qwen_base / qwen_vdgd / qwen_leco) --
+this script only adds dataset loading, category bookkeeping, and JSON reporting
+around them.
 
 Usage:
   python eval/eval_treebench_qwen.py --method base
   python eval/eval_treebench_qwen.py --method vdgd --min-k 1 --max-k 64
+  python eval/eval_treebench_qwen.py --method leco --min-k 1 --max-k 64 --max-iters 3
 """
 import argparse
 import base64
@@ -21,7 +23,7 @@ from datasets import load_dataset
 from PIL import Image
 from tqdm import tqdm
 
-from SSS.inference import load_qwen, qwen_base, qwen_vdgd
+from SSS.inference import load_qwen, qwen_base, qwen_vdgd, qwen_leco
 
 
 def extract_answer(text: str) -> str:
@@ -73,11 +75,12 @@ def load_treebench(data_dir: str, limit: int = None):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--method", choices=["base", "vdgd"], required=True,
-                    help="Which SSS.inference decoder to evaluate: qwen_base or qwen_vdgd")
+    ap.add_argument("--method", choices=["base", "vdgd", "leco"], required=True,
+                    help="Which SSS.inference decoder to evaluate: qwen_base, qwen_vdgd, or qwen_leco")
     ap.add_argument("--model", default="weights/Qwen2.5-VL-7B-Instruct")
-    ap.add_argument("--min-k", type=int, default=None, help="VDGD knee-truncation floor (vdgd only)")
-    ap.add_argument("--max-k", type=int, default=None, help="VDGD knee-truncation ceiling (vdgd only)")
+    ap.add_argument("--min-k", type=int, default=None, help="VDGD knee-truncation floor (vdgd/leco only)")
+    ap.add_argument("--max-k", type=int, default=None, help="VDGD knee-truncation ceiling (vdgd/leco only)")
+    ap.add_argument("--max-iters", type=int, default=3, help="LeCo max rollback-and-regenerate rounds (leco only)")
     ap.add_argument("--max-new-tokens", type=int, default=1024)
     ap.add_argument("--min-pixels", type=int, default=256 * 28 * 28)
     ap.add_argument("--max-pixels", type=int, default=1280 * 28 * 28)
@@ -138,18 +141,26 @@ def main():
             full_question += " Options:\n" + options_text
 
         try:
+            n_iters = None
             if args.method == "base":
                 prediction_text = qwen_base(
                     image, full_question, model=model, processor=processor,
                     min_pixels=args.min_pixels, max_pixels=args.max_pixels,
                     max_new_tokens=args.max_new_tokens,
                 )
-            else:
+            elif args.method == "vdgd":
                 prediction_text, _description = qwen_vdgd(
                     image, full_question, model=model, processor=processor,
                     min_pixels=args.min_pixels, max_pixels=args.max_pixels,
                     min_k=args.min_k, max_k=args.max_k,
                     max_new_tokens=args.max_new_tokens,
+                )
+            else:
+                prediction_text, _description, n_iters = qwen_leco(
+                    image, full_question, model=model, processor=processor,
+                    min_pixels=args.min_pixels, max_pixels=args.max_pixels,
+                    min_k=args.min_k, max_k=args.max_k,
+                    max_new_tokens=args.max_new_tokens, max_iters=args.max_iters,
                 )
 
             pred_ans = extract_answer(prediction_text)
@@ -174,6 +185,7 @@ def main():
                 "is_correct": is_correct,
                 "category": category,
                 "prediction_text": prediction_text,
+                "n_iters": n_iters,
             })
 
             correct_overall = sum(c["correct"] for c in stats.values()) + sum(c["correct"] for c in other_stats.values())
@@ -231,6 +243,9 @@ def main():
     print(f"{'Overall Summary Score':<27}: {overall_correct:>3}/{overall_total:<3} ({overall_acc:.2%})")
     print("=" * 70)
 
+    iter_counts = [d["n_iters"] for d in details if d["n_iters"] is not None]
+    avg_iters = sum(iter_counts) / len(iter_counts) if iter_counts else None
+
     out_dir = args.output_dir
     if not os.path.isabs(out_dir):
         out_dir = os.path.join(project_root, out_dir)
@@ -243,6 +258,8 @@ def main():
             "min_k": args.min_k,
             "max_k": args.max_k,
             "max_new_tokens": args.max_new_tokens,
+            "max_iters": args.max_iters if args.method == "leco" else None,
+            "avg_iters": avg_iters,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "total_samples": overall_total,
         },
