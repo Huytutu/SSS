@@ -1,3 +1,5 @@
+from typing import Optional
+
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 import torch
@@ -23,15 +25,16 @@ def build_messages(image, question, min_pixels=None, max_pixels=None):
     return messages
 
 
-def load_qwen(model_path: str = DEFAULT_MODEL_PATH):
-    # We recommend enabling flash_attention_2 for better acceleration and memory saving
+def load_qwen(model_path: str = DEFAULT_MODEL_PATH, attn_implementation: Optional[str] = None):
+    # We recommend enabling flash_attention_2 for better acceleration and memory saving.
+    # Pass attn_implementation="eager" instead if you need output_attentions from
+    # generate() (e.g. fovea/leco.py's attn_weight option) -- sdpa/flash-attention
+    # kernels don't return attention weights.
     processor = AutoProcessor.from_pretrained(model_path)
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        model_path,
-        torch_dtype=torch.bfloat16,
-        # attn_implementation="flash_attention_2",
-        device_map="cuda:0",
-    )
+    model_kwargs = dict(torch_dtype=torch.bfloat16, device_map="cuda:0")
+    if attn_implementation is not None:
+        model_kwargs["attn_implementation"] = attn_implementation
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, **model_kwargs)
     return model, processor
 
 

@@ -9,9 +9,11 @@ from transformers import LogitsProcessor
 from transformers.generation import LogitsProcessorList
 
 from .step_filter import is_structural_step
+from .attn_scorer import find_image_token_span, token_attn_cost
 
 __all__ = [
-    "segment_steps", "score_step", "step_dev_cost", "find_lowest_scoring_step", "leco_loop",
+    "segment_steps", "score_step", "step_dev_cost", "step_attn_cost",
+    "find_lowest_scoring_step", "find_first_bad_step", "leco_loop",
     "NegativeGuidanceLogitsProcessor", "MTI_PAPER_MARKER",
 ]
 
@@ -70,6 +72,51 @@ def step_dev_cost(step_log_slice: List[Dict[str, Any]], dev_quantile: float = 0.
     return float(torch.quantile(dev_costs, dev_quantile))
 
 
+def step_attn_cost(step_log_slice: List[Dict[str, Any]], attn_quantile: float = 0.9) -> float:
+    """High quantile of a step's per-token attention-ungroundedness cost --
+    mirrors step_dev_cost exactly (same one-bad-token-should-dominate
+    rationale), reading "attn_cost" (fovea/attn_scorer.py's VAR-based
+    `token_attn_cost`, see score_step's `attn_score` docstring) instead of
+    "dev_cost". Only present in step_log entries when leco_loop was run with
+    attn_weight > 0."""
+    attn_costs = torch.tensor([r["attn_cost"] for r in step_log_slice])
+    return float(torch.quantile(attn_costs, attn_quantile))
+
+
+def _detrend_step_costs(costs: torch.Tensor) -> torch.Tensor:
+    """OLS-regress `costs` (one value per step, in step order) on step index
+    and return the residuals. Guards against a *positional* confound in
+    `attn_cost` dominating the within-generation z-score below -- the
+    concern that originally motivated this (VAR, AFIP eq.2, reported to
+    decline monotonically with decode position) is no longer the signal in
+    use (see token_attn_cost's docstring: attn_cost is now eq.3's cross-head
+    KL, which the paper does not report any such trend for), so with the
+    current signal this is mostly a cheap safety net rather than a load-
+    bearing fix -- on a genuinely flat series it reduces to subtracting the
+    mean, which the downstream z-score would do anyway (OLS residuals are
+    always exactly mean-zero, regardless of the fitted slope, so this never
+    corrupts the z-score even when there's no real trend to remove).
+
+    Caveat if re-applied to a signal with a real trend: with the ~3-8 steps
+    typical of one generation here, a per-generation linear fit is a weak
+    estimator (high slope variance on so few points) and can't correct a
+    non-linear decline -- a population-level baseline (expected cost vs.
+    relative step position, fit across many generations) would be more
+    robust than re-fitting a line from scratch every time, but is out of
+    scope here.
+
+    No-ops below 3 steps: a line fits any 2 points exactly, so residuals
+    would be identically zero and carry no signal."""
+    n = costs.numel()
+    if n < 3:
+        return costs
+    idx = torch.arange(n, dtype=costs.dtype)
+    idx_c = idx - idx.mean()
+    slope = (idx_c * (costs - costs.mean())).sum() / (idx_c ** 2).sum()
+    intercept = costs.mean() - slope * idx.mean()
+    return costs - (intercept + slope * idx)
+
+
 def score_step(
     step_log_slice: List[Dict[str, Any]],
     next_step_head: List[Dict[str, Any]],
@@ -78,8 +125,13 @@ def score_step(
     dev_stats: Optional[Tuple[float, float]] = None,
     dev_temperature: float = 1.0,
     dev_weight: float = 0.5,
+    attn_quantile: float = 0.9,
+    attn_stats: Optional[Tuple[float, float]] = None,
+    attn_temperature: float = 1.0,
+    attn_weight: float = 0.0,
+    attn_cost_override: Optional[float] = None,
 ) -> float:
-    """LeCo step confidence: avg_score + trans_score - diver_score - dev_score.
+    """LeCo step confidence: avg_score + trans_score - diver_score - dev_score - attn_score.
 
     All four terms read `true_prob` / `dev_cost` logged by VDGDLogitsProcessor
     from the model's pre-rescore distribution -- not the VDGD-rescored
@@ -125,6 +177,43 @@ def score_step(
         less influence on the sum), lower sharpens. Falls back to the fixed
         1 - e^-x squash when no stats are given (e.g. scoring a single step
         in isolation).
+    attn_score: attention-inconsistency term -- how much the step's tokens'
+        attention heads disagree with each other about where in the image to
+        look, from fovea/attn_scorer.py's `token_attn_cost` (AFIP,
+        arXiv:2605.24602, eq.3: D_kl_t, mean cross-head KL divergence between
+        each head's image-token attention and the collective/head-averaged
+        one). Off by default (attn_weight=0.0) -- opt in via leco_loop's
+        `attn_weight`/`image_token_id`, which requires the model to have been
+        loaded with attn_implementation="eager" (sdpa/flash-attention don't
+        expose attention weights) and generate() called with
+        output_attentions=True.
+
+        Chose eq.3 over eq.2 (VAR, "how much attention landed on the image
+        at all") after review: VAR is reported to decline monotonically over
+        decode position across model backbones, which is a *when* effect
+        that would dominate the within-generation z-score below and is
+        disconnected from *correctness* (a legitimate late step can
+        legitimately need little visual grounding). D_kl has no such
+        reported temporal trend, and as a per-position head-disagreement
+        measure it is a spikier, more token-localized signal -- a better
+        match for the quantile-dominance treatment below (designed for
+        dev_cost's similarly spiky per-token NLL) than VAR's slow,
+        position-correlated one would have been. See `token_attn_cost`'s
+        docstring for the full argument.
+
+        Same quantile + z-score-against-this-generation's-own-stats + sigmoid
+        treatment as dev_score, for the same reasons documented above (one
+        badly-inconsistent token should dominate a step of consistent ones;
+        z-scoring against `attn_stats`, the (mean, std) of `step_attn_cost`
+        across this generation's own steps, rather than a fixed squash or
+        min-max, keeps one step from mechanically saturating attn_score in
+        every generation).
+
+        `attn_cost_override`, if given, is used as the step's `attn_cost_q`
+        directly instead of recomputing it from `step_log_slice` via
+        step_attn_cost -- leco_loop passes the already-detrended value here
+        (see `_detrend_step_costs`) so this function doesn't undo that by
+        recomputing the raw quantile.
     """
     if not step_log_slice:
         return 0.0
@@ -150,7 +239,18 @@ def score_step(
         z = (dev_cost_q - dev_mean) / (dev_std + 1e-6)
         dev_score = 1.0 / (1.0 + math.exp(-z / max(dev_temperature, 1e-6)))
 
-    return avg_score + trans_score - diver_score - dev_weight * dev_score
+    if attn_weight == 0.0:
+        attn_score = 0.0
+    else:
+        attn_cost_q = attn_cost_override if attn_cost_override is not None else step_attn_cost(step_log_slice, attn_quantile)
+        if attn_stats is None:
+            attn_score = 1.0 - math.exp(-attn_cost_q)
+        else:
+            attn_mean, attn_std = attn_stats
+            z = (attn_cost_q - attn_mean) / (attn_std + 1e-6)
+            attn_score = 1.0 / (1.0 + math.exp(-z / max(attn_temperature, 1e-6)))
+
+    return avg_score + trans_score - diver_score - dev_weight * dev_score - attn_weight * attn_score
 
 
 def find_lowest_scoring_step(scores: List[float], exclude: Optional[set] = None) -> int:
@@ -163,6 +263,55 @@ def find_lowest_scoring_step(scores: List[float], exclude: Optional[set] = None)
     if not candidates:
         candidates = list(range(len(scores)))
     return min(candidates, key=lambda i: scores[i])
+
+
+def find_first_bad_step(scores: List[float], exclude: Optional[set] = None, z_thresh: float = 1.0) -> int:
+    """First step (in generation order), among candidates, whose score falls
+    more than `z_thresh` robust standard deviations below the median of the
+    candidate scores -- rolling back to the step that *first* went wrong,
+    not whichever step happens to score worst overall.
+
+    find_lowest_scoring_step's plain argmin picks the single worst step
+    regardless of where it falls in the chain: if step 1 has one real
+    hallucinated token and step 2 has five, argmin always picks step 2, so
+    the rollback keeps regenerating downstream of step 1's still-uncorrected
+    error every round. That failure isn't specific to any one grounding term
+    (dev_score/attn_score) -- it's the selection rule itself comparing
+    steps' *severity* when what rollback actually needs is the first step
+    that crossed some *is-this-acceptable* line.
+
+    Uses median and MAD (median absolute deviation, scaled by 1.4826 to be
+    comparable to a standard deviation), not mean/std: a first version used
+    mean/std and failed on exactly the scenario above in testing -- step 2's
+    large dip inflates the *mean's* std enough that step 1's smaller-but-real
+    dip no longer clears a mean-based threshold, i.e. the big error masks
+    the earlier small one, which is the opposite of the intended fix.
+    Median/MAD is the standard robust alternative: a single severe outlier
+    step barely moves the median or the median-of-absolute-deviations, so it
+    doesn't raise the bar for detecting other, milder anomalies.
+
+    `z_thresh` is an unavoidable free parameter -- how far below the pack
+    counts as "wrong enough" isn't derivable from the scores alone and needs
+    empirical tuning; 1.0 is a permissive starting point, not a validated
+    value.
+
+    Falls back to find_lowest_scoring_step's argmin if no candidate crosses
+    the threshold (e.g. all steps score similarly -- nothing stands out
+    enough to call "first bad", but LeCo still needs to pick something once
+    segmentation has already found >1 step)."""
+    exclude = exclude or set()
+    candidates = [i for i in range(len(scores)) if i not in exclude]
+    if not candidates:
+        candidates = list(range(len(scores)))
+    cand_scores = torch.tensor([scores[i] for i in candidates])
+    median = torch.quantile(cand_scores, 0.5)
+    mad = torch.quantile((cand_scores - median).abs(), 0.5)
+    scale = float(1.4826 * mad) + 1e-6
+    for i in candidates:  # `candidates` is already in chronological order
+        z = (scores[i] - float(median)) / scale
+        if z < -z_thresh:
+            return i
+    return find_lowest_scoring_step(scores, exclude=exclude)
 
 
 class NegativeGuidanceLogitsProcessor(LogitsProcessor):
@@ -235,6 +384,13 @@ def leco_loop(
     guidance_entropy_thresh: float = 0.5,
     max_negative_marker_chars: int = 400,
     negative_marker: Optional[str] = None,
+    attn_weight: float = 0.0,
+    image_token_id: Optional[int] = None,
+    attn_layer_range: Optional[Tuple[int, int]] = None,
+    attn_temperature: float = 1.0,
+    attn_quantile: float = 0.9,
+    detrend_attn: bool = True,
+    rollback_z_thresh: float = 1.0,
 ) -> Tuple[str, int, List[Dict[str, Any]]]:
     """Iteratively regenerate through `proc` (a VDGDLogitsProcessor with
     collect_step_log=True), rolling back to the lowest-confidence reasoning step
@@ -252,6 +408,28 @@ def leco_loop(
     discarded `cut_text` (NEGATIVE_MARKER_TEMPLATE); pass `negative_marker`
     (e.g. `MTI_PAPER_MARKER`, i.e. "OUTPUT ERROR") to use a fixed,
     content-agnostic marker instead, matching the MTI paper's own choice.
+
+    `attn_weight` (opt-in, off by default): weight of the attention-based
+    grounding term in score_step (see its `attn_score` docstring). Requires
+    `image_token_id` (e.g. `model.config.image_token_id`) to locate the image
+    tokens in the prompt, and requires the model to have been loaded with
+    attn_implementation="eager" -- sdpa/flash-attention kernels don't return
+    attention weights, so `model.generate()` is called with
+    output_attentions=True/return_dict_in_generate=True only when
+    attn_weight > 0, and `out.attentions[t]` is spliced into
+    `proc.step_log[t]["attn_cost"]` post-hoc (a LogitsProcessor only sees
+    input_ids/scores, not attentions, so this can't happen inside `proc`
+    itself). `detrend_attn` (on by default when attn_weight > 0) regresses
+    each round's per-step attn_cost on step index and z-scores the residual
+    instead of the raw value -- see `_detrend_step_costs` (mostly a safety
+    net with the current eq.3-based attn_cost, see `token_attn_cost`).
+
+    `rollback_z_thresh` (default 1.0): passed to `find_first_bad_step`,
+    which picks the first step (not the single worst one) whose score falls
+    more than this many standard deviations below the round's own step
+    scores -- see that function's docstring for why plain argmin biases
+    rollback toward whichever step is most severe rather than whichever
+    went wrong first.
     """
     extract = extract_answer or _default_extract_answer
     tokenizer = processor.tokenizer
@@ -259,6 +437,14 @@ def leco_loop(
     vision_kwargs = {
         key: inputs[key] for key in ("pixel_values", "image_grid_thw") if inputs.get(key) is not None
     }
+
+    img_span: Optional[Tuple[int, int]] = None
+    if attn_weight > 0:
+        if image_token_id is None:
+            raise ValueError("leco_loop: attn_weight > 0 requires image_token_id (e.g. model.config.image_token_id).")
+        # Image tokens live in the fixed prompt prefix, which every iteration's
+        # (possibly-rolled-back) prefix_ids still starts with -- computed once.
+        img_span = find_image_token_span(inputs["input_ids"], image_token_id)
 
     prefix_ids = inputs["input_ids"]
     prev_answer: Optional[str] = None
@@ -281,7 +467,7 @@ def leco_loop(
             )
             processors.append(cfg_proc)
 
-        out = model.generate(
+        gen_kwargs: Dict[str, Any] = dict(
             input_ids=prefix_ids,
             attention_mask=torch.ones_like(prefix_ids),
             generation_config=gen_config,
@@ -289,6 +475,22 @@ def leco_loop(
             logits_processor=LogitsProcessorList(processors),
             **vision_kwargs,
         )
+        if attn_weight > 0:
+            gen_kwargs["output_attentions"] = True
+            gen_kwargs["return_dict_in_generate"] = True
+        gen_out = model.generate(**gen_kwargs)
+        if attn_weight > 0:
+            out = gen_out.sequences
+            # One entry per generated token, aligned 1:1 with proc.step_log by
+            # index (both advance once per decoding step): entry 0 is the
+            # prefill pass's attentions (attends over the full prompt, last
+            # query position predicts the first generated token), entries
+            # 1..N-1 are the incremental single-token decode steps.
+            for t, attn_step in enumerate(gen_out.attentions):
+                if t < len(proc.step_log):
+                    proc.step_log[t]["attn_cost"] = token_attn_cost(attn_step, img_span, attn_layer_range)
+        else:
+            out = gen_out
         cont_ids = out[0, prefix_ids.shape[1]:].tolist()
         text = processor.batch_decode(
             out[:, prompt_len:], skip_special_tokens=True, clean_up_tokenization_spaces=False
@@ -330,11 +532,31 @@ def leco_loop(
         step_dev_costs = torch.tensor([step_dev_cost(proc.step_log[a:b]) for (a, b) in ranges])
         dev_stats = (float(step_dev_costs.mean()), float(step_dev_costs.std(unbiased=False)))
 
+        # Same treatment for the attention-grounding cost -- see score_step's
+        # `attn_score` docstring. Only computed when attn_weight > 0 (step_log
+        # entries otherwise have no "attn_cost" key). Detrended against step
+        # index first (see _detrend_step_costs) so attn_stats/attn_cost_override
+        # are on the same (raw or residual) footing.
+        attn_stats: Optional[Tuple[float, float]] = None
+        step_attn_costs: Optional[torch.Tensor] = None
+        if attn_weight > 0:
+            step_attn_costs = torch.tensor(
+                [step_attn_cost(proc.step_log[a:b], attn_quantile) for (a, b) in ranges]
+            )
+            if detrend_attn:
+                step_attn_costs = _detrend_step_costs(step_attn_costs)
+            attn_stats = (float(step_attn_costs.mean()), float(step_attn_costs.std(unbiased=False)))
+
         step_scores = [
             score_step(
                 proc.step_log[a:b],
                 proc.step_log[ranges[j + 1][0]:ranges[j + 1][0] + 3] if j + 1 < len(ranges) else [],
                 dev_stats=dev_stats,
+                attn_quantile=attn_quantile,
+                attn_stats=attn_stats,
+                attn_temperature=attn_temperature,
+                attn_weight=attn_weight,
+                attn_cost_override=(float(step_attn_costs[j]) if step_attn_costs is not None else None),
             )
             for j, (a, b) in enumerate(ranges)
         ]
@@ -347,7 +569,7 @@ def leco_loop(
         step_texts = [tokenizer.decode(cont_ids[a:b], skip_special_tokens=True) for (a, b) in ranges]
         exclude = {len(ranges) - 1}
         exclude |= {i for i, t in enumerate(step_texts) if is_structural_step(t)}
-        bad = find_lowest_scoring_step(step_scores, exclude=exclude)
+        bad = find_first_bad_step(step_scores, exclude=exclude, z_thresh=rollback_z_thresh)
         record["step_scores"] = step_scores
         record["rollback_step"] = bad
         if bad == 0:
