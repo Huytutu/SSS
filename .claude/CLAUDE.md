@@ -11,6 +11,7 @@ Behavioral guidelines to reduce common LLM coding mistakes, derived from [Andrej
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 Always use conda env "medcxr"
+Check for free GPU before using it. You can also use multiple GPUs.
 
 ## 1. Think Before Coding
 
