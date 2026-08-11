@@ -4,8 +4,6 @@
 This script is intentionally small: it shows how to attach ECRD as a HuggingFace
 LogitsProcessor. For LLaVA/InternVL, keep the ECRD objects the same and replace
 only the model-specific image/chat preprocessing.
-
-python3 qwen2_5_vl_ecrd_demo.py --image --question
 """
 from __future__ import annotations
 import argparse
@@ -14,8 +12,8 @@ import torch
 from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration, LogitsProcessorList
 from qwen_vl_utils import process_vision_info
 
-from SSS.ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger, GRITClient
-from SSS.ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
+from ecrd import Evidence, EvidenceScorer, ECRDLogitsProcessor, MixedGapTrigger, GRITClient
+from ecrd.prompts import GLOBAL_DESCRIPTION_PROMPT
 
 
 def build_messages(image: str, question: str):
@@ -44,40 +42,21 @@ def main():
     ap.add_argument("--model", default="Qwen/Qwen2.5-VL-7B-Instruct")
     ap.add_argument("--image", required=True, help="local path or file:// URI")
     ap.add_argument("--question", required=True)
-    ap.add_argument("--load-in-4bit", action="store_true", help="Load base model in 4-bit")
     ap.add_argument("--use-grit", action="store_true")
     ap.add_argument("--grit-model", default="yfan1997/GRIT-20-Qwen2.5-VL-3B")
-    ap.add_argument("--grit-in-4bit", action="store_true", help="Load GRIT model in 4-bit")
-    ap.add_argument("--grit-device", default="0", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--delta", type=float, default=0.08)
     ap.add_argument("--max-new-tokens", type=int, default=512)
     args = ap.parse_args()
 
     image_uri = args.image if args.image.startswith("file://") else "file://" + os.path.abspath(args.image)
     processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
-    
-    model_kwargs = {
-        "device_map": "cuda:0" if torch.cuda.is_available() else "auto",
-        "trust_remote_code": True,
-    }
-    if args.load_in_4bit:
-        model_kwargs["load_in_4bit"] = True
-    else:
-        model_kwargs["torch_dtype"] = torch.bfloat16
-
-    try:
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model,
-            attn_implementation="flash_attention_2",
-            **model_kwargs
-        ).eval()
-    except ImportError:
-        print("flash_attn is not installed. Falling back to sdpa attention implementation...")
-        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model,
-            attn_implementation="sdpa",
-            **model_kwargs
-        ).eval()
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        attn_implementation="flash_attention_2",
+        trust_remote_code=True,
+    ).eval()
 
     desc = generate_global_description(model, processor, image_uri, args.question)
     scorer = EvidenceScorer(model=model, tokenizer=processor.tokenizer, max_prefix_len=128)
@@ -86,12 +65,7 @@ def main():
     proc = ECRDLogitsProcessor(scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64)
 
     if args.use_grit:
-        grit = GRITClient(
-            model_id=args.grit_model,
-            device=args.grit_device,
-            torch_dtype=torch.bfloat16,
-            load_in_4bit=args.grit_in_4bit
-        )
+        grit = GRITClient(model_id=args.grit_model, torch_dtype=torch.bfloat16)
         def hook(image, question, prefix_text, candidates):
             return grit.decide_next_token(
                 image=image,

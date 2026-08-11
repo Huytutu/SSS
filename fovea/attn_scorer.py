@@ -1,9 +1,9 @@
 from __future__ import annotations
-from typing import Optional, Sequence, Tuple
+from typing import Tuple
 
 import torch
 
-__all__ = ["find_image_token_span", "token_attn_cost"]
+__all__ = ["find_image_token_span"]
 
 
 def find_image_token_span(input_ids: torch.Tensor, image_token_id: int) -> Tuple[int, int]:
@@ -21,57 +21,3 @@ def find_image_token_span(input_ids: torch.Tensor, image_token_id: int) -> Tuple
     if end - start != matches.numel():
         raise ValueError("Image tokens are not contiguous -- multi-image prompts aren't supported.")
     return start, end
-
-
-def token_attn_cost(
-    attn_step: Sequence[torch.Tensor],
-    img_span: Tuple[int, int],
-    layer_range: Optional[Tuple[int, int]] = None,
-    eps: float = 1e-8,
-) -> float:
-    """attn_cost_t = D_kl_t (AFIP eq.3, arXiv:2605.24602) for one decode step:
-    mean cross-head KL divergence between each head's image-token attention
-    distribution and the collective (head-averaged) distribution -- "how much
-    do the heads disagree about where in the image to look".
-
-    Superseded VAR (eq.2, "how much attention landed on the image") as the
-    signal used here: VAR is reported by the paper to decline monotonically
-    over decode position across model backbones, which is a *when* effect
-    that swamps within-generation z-scoring (see fovea/leco.py's
-    `_detrend_step_costs`, and the discussion in score_step's `attn_score`
-    docstring) and is disconnected from *correctness* -- a legitimate late
-    step (e.g. a closing "therefore the answer is X") has low VAR without
-    hallucinating. D_kl has no such reported temporal trend, and being a
-    per-position head-disagreement measure it is closer in kind to `dev_cost`
-    (a spiky, token-localized signal) than VAR (a slow, position-correlated
-    one) -- a better match for the quantile-dominance aggregation this file
-    already uses for dev_cost (one bad token should dominate a step of good
-    ones).
-
-    `attn_step` is one entry of `out.attentions` from
-    `model.generate(output_attentions=True, return_dict_in_generate=True)`: a
-    per-layer tuple of [batch, heads, q_len, kv_len] post-softmax attention
-    tensors. Only the last query position (the one that produced this step's
-    token) and the image-token columns `img_span` are used. Averaged over all
-    heads and all layers in `layer_range` (default: every layer, matching
-    AFIP's own default full-stack range).
-
-    Per layer: each head's raw attention row over the image span is
-    Laplace-smoothed into a proper distribution `p_head`; the collective
-    distribution `p_collective` is the *normalized head-averaged raw row*
-    (matching eq.1's Ā_t^l, not a plain average of already-normalized
-    per-head distributions -- so a head that barely attends to the image
-    contributes little to the collective, same as it contributes little raw
-    mass to Ā_t^l)."""
-    s, e = img_span
-    n = e - s
-    lo, hi = layer_range if layer_range is not None else (0, len(attn_step) - 1)
-    layer_kls = []
-    for l in range(lo, hi + 1):
-        row = attn_step[l][0, :, -1, s:e]  # [heads, n_image_tokens], raw post-softmax attention
-        p_head = (row + eps) / (row.sum(dim=-1, keepdim=True) + n * eps)  # [heads, n]
-        row_avg = row.mean(dim=0)  # [n] -- Ā_t^l, head-averaged raw attention (eq.1's definition)
-        p_collective = (row_avg + eps) / (row_avg.sum() + n * eps)  # [n]
-        kl_per_head = (p_head * (p_head.log() - p_collective.log())).sum(dim=-1)  # [heads], eq.3's KL(P_h || P_l)
-        layer_kls.append(kl_per_head.mean())  # (1/H) sum_h KL(...)
-    return float(torch.stack(layer_kls).mean().item())

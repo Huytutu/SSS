@@ -27,7 +27,11 @@ _PURE_FORMATTING_RE = re.compile(r"^[\\\*\#\-\:\.\[\]\(\)\s]*$")
 # Rule 2: a numbered, optionally bolded header with no content of its own --
 # e.g. "1. **Identify Corresponding Angles**:" (the RH-Bench id=28 rollback
 # target, picked twice in a row instead of the step with the actual error).
-_NUMBERED_HEADER_RE = re.compile(r"^\d+\.\s*(\*\*[^*]+\*\*)?\s*:?\s*$")
+# Trailing "[:\*\s]*" (not just "\s*:?\s*") to tolerate a stray "**" after the
+# colon (e.g. "**Identify...**:**", a markdown glitch some generations
+# produce) -- TreeBench index=400 rolled back into exactly such a header
+# because the extra "**" fell outside the old pattern's trailing "\s*:?\s*$".
+_NUMBERED_HEADER_RE = re.compile(r"^\d+\.\s*(\*\*[^*]+\*\*)?[:\*\s]*$")
 
 
 def _normalize(text: str) -> str:

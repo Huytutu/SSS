@@ -11,9 +11,19 @@ GLOBAL_DESCRIPTION_PROMPT = (
 # # mô tả hình ảnh ban đầu nhưng liên quan đến câu hỏi hơn
 # GLOBAL_DESCRIPTION_PROMPT = (
 #     "I have been given this image to help answer the following question: {instruction}\n\n"
-#     "Describe only the objects, attributes, relations, actions, text, and spatial details "
+#     "Describe only the objects, attributes, relations, actions, text, and spatial details"
 #     "visible in the image that may help answer the question. Do not infer facts that are not "
 #     "visually observable, and do not answer the question itself -- only describe the image."
+# )
+
+# # mô tả hình ảnh kèm đưa base attention cho sau này
+# GLOBAL_DESCRIPTION_PROMPT = (
+#     "Write a general description of the image. "
+#     "Describe the visually observable objects, their properties, "
+#     "spatial relationships, counts, and any visible text. "
+#     "For charts, graphs, tables, or diagrams, describe the visible "
+#     "axes, numbers, labels, and other observable elements. "
+#     "Do not infer facts that are not visually observable."
 # )
 
 # Shown before the real question (opt-in, see build_vdgd_processor's `one_shot`

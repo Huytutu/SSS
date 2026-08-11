@@ -9,7 +9,8 @@ from transformers import LogitsProcessor
 from transformers.generation import LogitsProcessorList
 
 from .step_filter import is_structural_step
-from .attn_scorer import find_image_token_span, token_attn_cost
+from .attn_scorer import find_image_token_span
+from .attn_hook import AttentionCostCollector, AttnCostRecorder
 
 __all__ = [
     "segment_steps", "score_step", "step_dev_cost", "step_attn_cost",
@@ -75,10 +76,10 @@ def step_dev_cost(step_log_slice: List[Dict[str, Any]], dev_quantile: float = 0.
 def step_attn_cost(step_log_slice: List[Dict[str, Any]], attn_quantile: float = 0.9) -> float:
     """High quantile of a step's per-token attention-ungroundedness cost --
     mirrors step_dev_cost exactly (same one-bad-token-should-dominate
-    rationale), reading "attn_cost" (fovea/attn_scorer.py's VAR-based
-    `token_attn_cost`, see score_step's `attn_score` docstring) instead of
-    "dev_cost". Only present in step_log entries when leco_loop was run with
-    attn_weight > 0."""
+    rationale), reading "attn_cost" (see score_step's `attn_score` docstring
+    and fovea/attn_hook.py's AttentionCostCollector, which populates it)
+    instead of "dev_cost". Only present in step_log entries when leco_loop
+    was run with attn_weight > 0."""
     attn_costs = torch.tensor([r["attn_cost"] for r in step_log_slice])
     return float(torch.quantile(attn_costs, attn_quantile))
 
@@ -89,11 +90,11 @@ def _detrend_step_costs(costs: torch.Tensor) -> torch.Tensor:
     `attn_cost` dominating the within-generation z-score below -- the
     concern that originally motivated this (VAR, AFIP eq.2, reported to
     decline monotonically with decode position) is no longer the signal in
-    use (see token_attn_cost's docstring: attn_cost is now eq.3's cross-head
-    KL, which the paper does not report any such trend for), so with the
-    current signal this is mostly a cheap safety net rather than a load-
-    bearing fix -- on a genuinely flat series it reduces to subtracting the
-    mean, which the downstream z-score would do anyway (OLS residuals are
+    use (attn_cost is now eq.3's cross-head KL, which the paper does not
+    report any such trend for), so with the current signal this is mostly a
+    cheap safety net rather than a load-bearing fix -- on a genuinely flat
+    series it reduces to subtracting the mean, which the downstream z-score
+    would do anyway (OLS residuals are
     always exactly mean-zero, regardless of the fitted slope, so this never
     corrupts the z-score even when there's no real trend to remove).
 
@@ -179,14 +180,15 @@ def score_step(
         in isolation).
     attn_score: attention-inconsistency term -- how much the step's tokens'
         attention heads disagree with each other about where in the image to
-        look, from fovea/attn_scorer.py's `token_attn_cost` (AFIP,
-        arXiv:2605.24602, eq.3: D_kl_t, mean cross-head KL divergence between
-        each head's image-token attention and the collective/head-averaged
-        one). Off by default (attn_weight=0.0) -- opt in via leco_loop's
-        `attn_weight`/`image_token_id`, which requires the model to have been
-        loaded with attn_implementation="eager" (sdpa/flash-attention don't
-        expose attention weights) and generate() called with
-        output_attentions=True.
+        look (AFIP, arXiv:2605.24602, eq.3: D_kl_t, mean cross-head KL
+        divergence between each head's image-token attention and the
+        collective/head-averaged one). Off by default (attn_weight=0.0) --
+        opt in via leco_loop's `attn_weight`/`image_token_id`. Computed by
+        fovea/attn_hook.py's `AttentionCostCollector`, which monkey-patches
+        a small range of decoder layers to compute this inline and discard
+        the attention tensor immediately -- see that module's docstring for
+        why (in short: `output_attentions=True` on the full model was tried
+        first and OOMs on a 24GB GPU for image-heavy prompts).
 
         Chose eq.3 over eq.2 (VAR, "how much attention landed on the image
         at all") after review: VAR is reported to decline monotonically over
@@ -198,8 +200,7 @@ def score_step(
         measure it is a spikier, more token-localized signal -- a better
         match for the quantile-dominance treatment below (designed for
         dev_cost's similarly spiky per-token NLL) than VAR's slow,
-        position-correlated one would have been. See `token_attn_cost`'s
-        docstring for the full argument.
+        position-correlated one would have been.
 
         Same quantile + z-score-against-this-generation's-own-stats + sigmoid
         treatment as dev_score, for the same reasons documented above (one
@@ -384,6 +385,7 @@ def leco_loop(
     guidance_entropy_thresh: float = 0.5,
     max_negative_marker_chars: int = 400,
     negative_marker: Optional[str] = None,
+    dev_weight: float = 0.5,
     attn_weight: float = 0.0,
     image_token_id: Optional[int] = None,
     attn_layer_range: Optional[Tuple[int, int]] = None,
@@ -409,20 +411,24 @@ def leco_loop(
     (e.g. `MTI_PAPER_MARKER`, i.e. "OUTPUT ERROR") to use a fixed,
     content-agnostic marker instead, matching the MTI paper's own choice.
 
+    `dev_weight` (default 0.5): weight of score_step's dev_score term, exposed
+    here so callers can isolate/ablate it against `attn_weight` (e.g. dev_weight=0
+    to test attn_score alone). See score_step's `dev_score` docstring.
+
     `attn_weight` (opt-in, off by default): weight of the attention-based
     grounding term in score_step (see its `attn_score` docstring). Requires
     `image_token_id` (e.g. `model.config.image_token_id`) to locate the image
-    tokens in the prompt, and requires the model to have been loaded with
-    attn_implementation="eager" -- sdpa/flash-attention kernels don't return
-    attention weights, so `model.generate()` is called with
-    output_attentions=True/return_dict_in_generate=True only when
-    attn_weight > 0, and `out.attentions[t]` is spliced into
-    `proc.step_log[t]["attn_cost"]` post-hoc (a LogitsProcessor only sees
-    input_ids/scores, not attentions, so this can't happen inside `proc`
-    itself). `detrend_attn` (on by default when attn_weight > 0) regresses
-    each round's per-step attn_cost on step index and z-scores the residual
-    instead of the raw value -- see `_detrend_step_costs` (mostly a safety
-    net with the current eq.3-based attn_cost, see `token_attn_cost`).
+    tokens in the prompt. Unlike an earlier version of this, does NOT require
+    attn_implementation="eager" or output_attentions=True -- fovea/attn_hook.py's
+    AttentionCostCollector monkey-patches just `attn_layer_range` layers
+    (default (5, 18) -- NOT the full stack; capturing all 28 layers' attention
+    for a whole generation is what OOM'd on a 24GB GPU with image-heavy
+    prompts) to compute each step's Dkl inline and discard the attention
+    tensor immediately, so the rest of the model keeps using its normal
+    fast attention kernel. `detrend_attn` (on by default when attn_weight > 0)
+    regresses each round's per-step attn_cost on step index and z-scores the
+    residual instead of the raw value -- see `_detrend_step_costs` (mostly a
+    safety net with the current eq.3-based attn_cost).
 
     `rollback_z_thresh` (default 1.0): passed to `find_first_bad_step`,
     which picks the first step (not the single worst one) whose score falls
@@ -439,12 +445,17 @@ def leco_loop(
     }
 
     img_span: Optional[Tuple[int, int]] = None
+    collector: Optional[AttentionCostCollector] = None
     if attn_weight > 0:
         if image_token_id is None:
             raise ValueError("leco_loop: attn_weight > 0 requires image_token_id (e.g. model.config.image_token_id).")
         # Image tokens live in the fixed prompt prefix, which every iteration's
         # (possibly-rolled-back) prefix_ids still starts with -- computed once.
         img_span = find_image_token_span(inputs["input_ids"], image_token_id)
+        # Default (5, 18), NOT the full 28-layer stack: patching (and thus
+        # eager-computing) every layer for a whole generation is what OOM'd
+        # on a 24GB GPU with image-heavy prompts -- see attn_hook.py.
+        collector = AttentionCostCollector(model, layer_range=attn_layer_range or (5, 18), img_span=img_span)
 
     prefix_ids = inputs["input_ids"]
     prev_answer: Optional[str] = None
@@ -452,147 +463,142 @@ def leco_loop(
     history: List[Dict[str, Any]] = []
     negative_prefix_ids: Optional[torch.Tensor] = None
 
-    for it in range(max_iters):
-        remaining_budget = max_new_tokens - (prefix_ids.shape[1] - prompt_len)
-        if remaining_budget <= 0:
-            break
+    try:
+        for it in range(max_iters):
+            remaining_budget = max_new_tokens - (prefix_ids.shape[1] - prompt_len)
+            if remaining_budget <= 0:
+                break
 
-        proc.step_log = []
-        processors = [proc]
-        cfg_proc: Optional[NegativeGuidanceLogitsProcessor] = None
-        if use_negative_guidance and negative_prefix_ids is not None:
-            cfg_proc = NegativeGuidanceLogitsProcessor(
-                model, negative_prefix_ids, prefix_ids.shape[1], vision_kwargs,
-                guidance_scale=guidance_scale, entropy_thresh=guidance_entropy_thresh,
+            proc.step_log = []
+            processors = [proc]
+            cfg_proc: Optional[NegativeGuidanceLogitsProcessor] = None
+            if use_negative_guidance and negative_prefix_ids is not None:
+                cfg_proc = NegativeGuidanceLogitsProcessor(
+                    model, negative_prefix_ids, prefix_ids.shape[1], vision_kwargs,
+                    guidance_scale=guidance_scale, entropy_thresh=guidance_entropy_thresh,
+                )
+                processors.append(cfg_proc)
+            if collector is not None:
+                # Must come after `proc`: reads proc.step_log[-1], which proc's
+                # own __call__ just appended for this same step (see
+                # AttnCostRecorder's docstring).
+                processors.append(AttnCostRecorder(collector, proc))
+
+            gen_kwargs: Dict[str, Any] = dict(
+                input_ids=prefix_ids,
+                attention_mask=torch.ones_like(prefix_ids),
+                generation_config=gen_config,
+                max_new_tokens=remaining_budget,
+                logits_processor=LogitsProcessorList(processors),
+                **vision_kwargs,
             )
-            processors.append(cfg_proc)
+            out = model.generate(**gen_kwargs)
+            cont_ids = out[0, prefix_ids.shape[1]:].tolist()
+            text = processor.batch_decode(
+                out[:, prompt_len:], skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0].strip()
+            cont_text = processor.batch_decode(
+                [cont_ids], skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0]
+            answer = extract(text)
+            # `new_text` is what THIS iteration generated from its (possibly truncated)
+            # prefix -- for iter > 0 that's exactly the replacement for the previous
+            # iteration's `cut_text`, so the two can be shown side by side.
+            record: Dict[str, Any] = {"iter": it, "answer": answer, "n_tokens": len(cont_ids), "new_text": cont_text}
+            if cfg_proc is not None:
+                record["cfg_triggers"] = cfg_proc.n_triggered
+            history.append(record)
 
-        gen_kwargs: Dict[str, Any] = dict(
-            input_ids=prefix_ids,
-            attention_mask=torch.ones_like(prefix_ids),
-            generation_config=gen_config,
-            max_new_tokens=remaining_budget,
-            logits_processor=LogitsProcessorList(processors),
-            **vision_kwargs,
-        )
-        if attn_weight > 0:
-            gen_kwargs["output_attentions"] = True
-            gen_kwargs["return_dict_in_generate"] = True
-        gen_out = model.generate(**gen_kwargs)
-        if attn_weight > 0:
-            out = gen_out.sequences
-            # One entry per generated token, aligned 1:1 with proc.step_log by
-            # index (both advance once per decoding step): entry 0 is the
-            # prefill pass's attentions (attends over the full prompt, last
-            # query position predicts the first generated token), entries
-            # 1..N-1 are the incremental single-token decode steps.
-            for t, attn_step in enumerate(gen_out.attentions):
-                if t < len(proc.step_log):
-                    proc.step_log[t]["attn_cost"] = token_attn_cost(attn_step, img_span, attn_layer_range)
-        else:
-            out = gen_out
-        cont_ids = out[0, prefix_ids.shape[1]:].tolist()
-        text = processor.batch_decode(
-            out[:, prompt_len:], skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0].strip()
-        cont_text = processor.batch_decode(
-            [cont_ids], skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0]
-        answer = extract(text)
-        # `new_text` is what THIS iteration generated from its (possibly truncated)
-        # prefix -- for iter > 0 that's exactly the replacement for the previous
-        # iteration's `cut_text`, so the two can be shown side by side.
-        record: Dict[str, Any] = {"iter": it, "answer": answer, "n_tokens": len(cont_ids), "new_text": cont_text}
-        if cfg_proc is not None:
-            record["cfg_triggers"] = cfg_proc.n_triggered
-        history.append(record)
+            if answer == prev_answer:
+                break
 
-        if answer == prev_answer:
-            break
+            answer_match = _ANSWER_RE.search(cont_text)
+            answer_start_idx = None
+            if answer_match:
+                # Token index of the first token whose decode reaches the "<answer>" tag.
+                running = ""
+                for idx, tid in enumerate(cont_ids):
+                    running += tokenizer.decode([tid], skip_special_tokens=True)
+                    if len(running) >= answer_match.start():
+                        answer_start_idx = idx
+                        break
 
-        answer_match = _ANSWER_RE.search(cont_text)
-        answer_start_idx = None
-        if answer_match:
-            # Token index of the first token whose decode reaches the "<answer>" tag.
-            running = ""
-            for idx, tid in enumerate(cont_ids):
-                running += tokenizer.decode([tid], skip_special_tokens=True)
-                if len(running) >= answer_match.start():
-                    answer_start_idx = idx
-                    break
+            ranges = segment_steps(cont_ids, tokenizer, answer_start_idx)
+            record["step_ranges"] = ranges
+            if len(ranges) <= 1:
+                break
 
-        ranges = segment_steps(cont_ids, tokenizer, answer_start_idx)
-        record["step_ranges"] = ranges
-        if len(ranges) <= 1:
-            break
+            # Mean/std of deviation cost across this generation's own steps -- see
+            # score_step's `dev_stats` docstring for why z-scoring (not a fixed
+            # absolute squash, and not min-max) is used.
+            step_dev_costs = torch.tensor([step_dev_cost(proc.step_log[a:b]) for (a, b) in ranges])
+            dev_stats = (float(step_dev_costs.mean()), float(step_dev_costs.std(unbiased=False)))
 
-        # Mean/std of deviation cost across this generation's own steps -- see
-        # score_step's `dev_stats` docstring for why z-scoring (not a fixed
-        # absolute squash, and not min-max) is used.
-        step_dev_costs = torch.tensor([step_dev_cost(proc.step_log[a:b]) for (a, b) in ranges])
-        dev_stats = (float(step_dev_costs.mean()), float(step_dev_costs.std(unbiased=False)))
+            # Same treatment for the attention-grounding cost -- see score_step's
+            # `attn_score` docstring. Only computed when attn_weight > 0 (step_log
+            # entries otherwise have no "attn_cost" key). Detrended against step
+            # index first (see _detrend_step_costs) so attn_stats/attn_cost_override
+            # are on the same (raw or residual) footing.
+            attn_stats: Optional[Tuple[float, float]] = None
+            step_attn_costs: Optional[torch.Tensor] = None
+            if attn_weight > 0:
+                step_attn_costs = torch.tensor(
+                    [step_attn_cost(proc.step_log[a:b], attn_quantile) for (a, b) in ranges]
+                )
+                if detrend_attn:
+                    step_attn_costs = _detrend_step_costs(step_attn_costs)
+                attn_stats = (float(step_attn_costs.mean()), float(step_attn_costs.std(unbiased=False)))
 
-        # Same treatment for the attention-grounding cost -- see score_step's
-        # `attn_score` docstring. Only computed when attn_weight > 0 (step_log
-        # entries otherwise have no "attn_cost" key). Detrended against step
-        # index first (see _detrend_step_costs) so attn_stats/attn_cost_override
-        # are on the same (raw or residual) footing.
-        attn_stats: Optional[Tuple[float, float]] = None
-        step_attn_costs: Optional[torch.Tensor] = None
-        if attn_weight > 0:
-            step_attn_costs = torch.tensor(
-                [step_attn_cost(proc.step_log[a:b], attn_quantile) for (a, b) in ranges]
-            )
-            if detrend_attn:
-                step_attn_costs = _detrend_step_costs(step_attn_costs)
-            attn_stats = (float(step_attn_costs.mean()), float(step_attn_costs.std(unbiased=False)))
+            step_scores = [
+                score_step(
+                    proc.step_log[a:b],
+                    proc.step_log[ranges[j + 1][0]:ranges[j + 1][0] + 3] if j + 1 < len(ranges) else [],
+                    dev_stats=dev_stats,
+                    dev_weight=dev_weight,
+                    attn_quantile=attn_quantile,
+                    attn_stats=attn_stats,
+                    attn_temperature=attn_temperature,
+                    attn_weight=attn_weight,
+                    attn_cost_override=(float(step_attn_costs[j]) if step_attn_costs is not None else None),
+                )
+                for j, (a, b) in enumerate(ranges)
+            ]
+            # Exclude the last step (segment right before <answer>, typically a
+            # trivial transition -- rolling back into it discards nothing
+            # substantive) and any structural step (formatting/header/transition
+            # line, or an option echo) from rollback candidacy: these score low
+            # regardless of content and otherwise hijack rollback away from the
+            # step that actually contains the error -- see step_filter.py.
+            step_texts = [tokenizer.decode(cont_ids[a:b], skip_special_tokens=True) for (a, b) in ranges]
+            exclude = {len(ranges) - 1}
+            exclude |= {i for i, t in enumerate(step_texts) if is_structural_step(t)}
+            bad = find_first_bad_step(step_scores, exclude=exclude, z_thresh=rollback_z_thresh)
+            record["step_scores"] = step_scores
+            record["rollback_step"] = bad
+            if bad == 0:
+                break
 
-        step_scores = [
-            score_step(
-                proc.step_log[a:b],
-                proc.step_log[ranges[j + 1][0]:ranges[j + 1][0] + 3] if j + 1 < len(ranges) else [],
-                dev_stats=dev_stats,
-                attn_quantile=attn_quantile,
-                attn_stats=attn_stats,
-                attn_temperature=attn_temperature,
-                attn_weight=attn_weight,
-                attn_cost_override=(float(step_attn_costs[j]) if step_attn_costs is not None else None),
-            )
-            for j, (a, b) in enumerate(ranges)
-        ]
-        # Exclude the last step (segment right before <answer>, typically a
-        # trivial transition -- rolling back into it discards nothing
-        # substantive) and any structural step (formatting/header/transition
-        # line, or an option echo) from rollback candidacy: these score low
-        # regardless of content and otherwise hijack rollback away from the
-        # step that actually contains the error -- see step_filter.py.
-        step_texts = [tokenizer.decode(cont_ids[a:b], skip_special_tokens=True) for (a, b) in ranges]
-        exclude = {len(ranges) - 1}
-        exclude |= {i for i, t in enumerate(step_texts) if is_structural_step(t)}
-        bad = find_first_bad_step(step_scores, exclude=exclude, z_thresh=rollback_z_thresh)
-        record["step_scores"] = step_scores
-        record["rollback_step"] = bad
-        if bad == 0:
-            break
+            cut_start = ranges[bad][0]
+            record["kept_text"] = processor.batch_decode(
+                [cont_ids[:cut_start]], skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0]
+            record["cut_text"] = processor.batch_decode(
+                [cont_ids[cut_start:]], skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )[0]
 
-        cut_start = ranges[bad][0]
-        record["kept_text"] = processor.batch_decode(
-            [cont_ids[:cut_start]], skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0]
-        record["cut_text"] = processor.batch_decode(
-            [cont_ids[cut_start:]], skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0]
+            if use_negative_guidance:
+                if negative_marker is not None:
+                    marker_text = negative_marker
+                else:
+                    marker_cut_text = record["cut_text"][:max_negative_marker_chars]
+                    marker_text = NEGATIVE_MARKER_TEMPLATE.format(cut_text=marker_cut_text) if marker_cut_text else _DEFAULT_NEGATIVE_MARKER
+                marker_ids = tokenizer(marker_text, add_special_tokens=False, return_tensors="pt").input_ids.to(prefix_ids.device)
+                negative_prefix_ids = torch.cat([out[:, : prefix_ids.shape[1] + cut_start], marker_ids], dim=1)
 
-        if use_negative_guidance:
-            if negative_marker is not None:
-                marker_text = negative_marker
-            else:
-                marker_cut_text = record["cut_text"][:max_negative_marker_chars]
-                marker_text = NEGATIVE_MARKER_TEMPLATE.format(cut_text=marker_cut_text) if marker_cut_text else _DEFAULT_NEGATIVE_MARKER
-            marker_ids = tokenizer(marker_text, add_special_tokens=False, return_tensors="pt").input_ids.to(prefix_ids.device)
-            negative_prefix_ids = torch.cat([out[:, : prefix_ids.shape[1] + cut_start], marker_ids], dim=1)
+            prefix_ids = out[:, : prefix_ids.shape[1] + cut_start]
+            prev_answer = answer
 
-        prefix_ids = out[:, : prefix_ids.shape[1] + cut_start]
-        prev_answer = answer
-
-    return text, len(history), history
+        return text, len(history), history
+    finally:
+        if collector is not None:
+            collector.restore()

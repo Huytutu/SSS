@@ -75,7 +75,7 @@ def build_vdgd_processor(
     """
     description = generate_description(model, processor, image, question, min_pixels, max_pixels)
     one_shot_prefix = ONE_SHOT_REASONING_EXAMPLE if one_shot else ""
-    augmented_question = f"{description}\n\n{one_shot_prefix}{question}"
+    augmented_question = f"The input image can be described as follows:{description}\n\n{one_shot_prefix}{question}"
 
     messages = build_messages(image, augmented_question, min_pixels, max_pixels)
     chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
