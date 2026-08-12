@@ -1,66 +1,50 @@
-from typing import Optional
-
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
-import torch
 
-DEFAULT_MODEL_PATH = "weights/Qwen2.5-VL-7B-Instruct"
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    "Qwen/Qwen2.5-VL-7B-Instruct",
+    torch_dtype=torch.bfloat16,
+    attn_implementation="flash_attention_2",
+    device_map="auto",
+)
 
+min_pixels = 256*28*28
+max_pixels = 1280*28*28
+processor = AutoProcessor.from_pretrained("Qwen/Qwen2.5-VL-7B-Instruct", min_pixels=min_pixels, max_pixels=max_pixels)
 
-def build_messages(image, question, min_pixels=None, max_pixels=None):
-    image_content = {"type": "image", "image": image}
-    if min_pixels is not None:
-        image_content["min_pixels"] = min_pixels
-    if max_pixels is not None:
-        image_content["max_pixels"] = max_pixels
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                image_content,
-                {"type": "text", "text": question + "\n\nThink step by step and put the final answer in <answer>...</answer>."},
-            ],
-        }
-    ]
-    return messages
+messages = [
+    {
+        "role": "user",
+        "content": [
+            {
+                "type": "image",
+                "image": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen-VL/assets/demo.jpeg",
+            },
+            {"type": "text", "text": "Describe this image."},
+        ],
+    }
+]
 
+# Preparation for inference
+text = processor.apply_chat_template(
+    messages, tokenize=False, add_generation_prompt=True
+)
+image_inputs, video_inputs = process_vision_info(messages)
+inputs = processor(
+    text=[text],
+    images=image_inputs,
+    videos=video_inputs,
+    padding=True,
+    return_tensors="pt",
+)
+inputs = inputs.to("cuda")
 
-def load_qwen(model_path: str = DEFAULT_MODEL_PATH, attn_implementation: Optional[str] = None):
-    # We recommend enabling flash_attention_2 for better acceleration and memory saving.
-    # Pass attn_implementation="eager" instead if you need output_attentions from
-    # generate() (e.g. fovea/leco.py's attn_weight option) -- sdpa/flash-attention
-    # kernels don't return attention weights.
-    processor = AutoProcessor.from_pretrained(model_path)
-    model_kwargs = dict(torch_dtype=torch.bfloat16, device_map="cuda:0")
-    if attn_implementation is not None:
-        model_kwargs["attn_implementation"] = attn_implementation
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(model_path, **model_kwargs)
-    return model, processor
-
-
-def qwen_base(
-    image,
-    question,
-    model=None,
-    processor=None,
-    model_path: str = DEFAULT_MODEL_PATH,
-    min_pixels=None,
-    max_pixels=None,
-    max_new_tokens: int = 512,
-):
-    """Greedy decoding, no logits processor"""
-    if model is None or processor is None:
-        model, processor = load_qwen(model_path)
-
-    messages = build_messages(image, question, min_pixels, max_pixels)
-    chat = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    img_inputs, vid_inputs = process_vision_info(messages)
-    inputs = processor(text=[chat], images=img_inputs, videos=vid_inputs, padding=True, return_tensors="pt").to(model.device)
-    gen = model.generate(
-        **inputs,
-        do_sample=False,
-        max_new_tokens=max_new_tokens,
-        use_cache=True,
-    )
-    text = processor.batch_decode(gen[:, inputs.input_ids.shape[1]:], skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-    return text
+# Inference: Generation of the output
+generated_ids = model.generate(**inputs, max_new_tokens=128)
+generated_ids_trimmed = [
+    out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+]
+output_text = processor.batch_decode(
+    generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+)
+print(output_text)
