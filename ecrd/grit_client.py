@@ -152,12 +152,36 @@ class GRITClient:
         trace_dir: Optional[str] = None,
         trace_file: str = "grit_trace.jsonl",
     ):
-        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_id,
-            torch_dtype=torch_dtype,
-            device_map="auto",
-            attn_implementation="flash_attention_2",
-        ).eval()
+        # This checkpoint's config.json has use_cache=null, which newer huggingface_hub
+        # strict validation rejects. Both the model and processor load re-read this file,
+        # so patch it on disk once rather than in memory.
+        config_path = os.path.join(model_id, "config.json")
+        if os.path.isfile(config_path):
+            with open(config_path) as f:
+                config_dict = json.load(f)
+            if config_dict.get("use_cache") is None:
+                config_dict["use_cache"] = True
+                with open(config_path, "w") as f:
+                    json.dump(config_dict, f, indent=2)
+
+        # device_map="auto" lets accelerate shard across every visible GPU, which can land
+        # on GPUs other jobs are using. Pin to the requested device instead.
+        device_map = f"cuda:{device}" if str(device).isdigit() else device
+
+        try:
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_id,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                attn_implementation="flash_attention_2",
+            ).eval()
+        except ImportError:
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_id,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                attn_implementation="sdpa",
+            ).eval()
         self.processor = AutoProcessor.from_pretrained(model_id)
         self.max_prefix_chars = int(max_prefix_chars)
         self._trace_fp = None
@@ -226,6 +250,7 @@ class GRITClient:
 
         gen_cfg = self.model.generation_config
         gen_cfg.max_new_tokens = max_new_tokens
+        gen_cfg.do_sample = False
         gen_cfg.temperature = 0.0
         gen_cfg.top_k = 1
         gen_cfg.top_p = 0.0

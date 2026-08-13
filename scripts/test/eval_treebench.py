@@ -131,8 +131,8 @@ def main():
     ap.add_argument("--device", default="cuda:0", help="Device to run the base model on (e.g., cuda:0)")
     ap.add_argument("--grit-device", default="0", help="Device to run GRIT model on (e.g., cpu, 0)")
     ap.add_argument("--max-new-tokens", type=int, default=1024, help="Reference implementation default is 1024")
-    ap.add_argument("--min-pixels", type=int, default=256*28*28)
-    ap.add_argument("--max-pixels", type=int, default=1280*28*28)
+    ap.add_argument("--min-pixels", type=int, default=1280*28*28)
+    ap.add_argument("--max-pixels", type=int, default=16384*28*28)
     ap.add_argument("--limit", type=int, default=None, help="Limit evaluation to first N samples")
     ap.add_argument("--data-dir", default=None, help="Directory for local dataset (default: data/TreeBench)")
     ap.add_argument("--output-dir", default="results", help="Directory to save evaluation results JSON")
@@ -218,7 +218,6 @@ def main():
             model_id=grit_path,
             device=args.grit_device,
             torch_dtype=torch.bfloat16,
-            load_in_4bit=args.grit_in_4bit
         )
 
 
@@ -286,7 +285,6 @@ def main():
 
                 proc = ECRDLogitsProcessor(
                     scorer=scorer, tokenizer=processor.tokenizer, min_k=1, max_k=64,
-                    collect_calibration_log=bool(args.collect_calib_log),
                 )
 
                 if grit:

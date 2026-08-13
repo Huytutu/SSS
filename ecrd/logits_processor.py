@@ -105,6 +105,7 @@ class ECRDLogitsProcessor(LogitsProcessor):
         self._question = None
         self._image = None
         self.last_info: List[Dict[str, Any]] = []
+        self.grit_invocations = 0
 
     def set_grit_runtime(self, *, hook, trigger, evidence_pool, question: str = "", image: Any = None):
         self._grit_hook = hook
@@ -201,6 +202,7 @@ class ECRDLogitsProcessor(LogitsProcessor):
                             prefix_text=prefix_text,
                             candidates=candidates,
                         )
+                        self.grit_invocations += 1
                         forced_id = None
                         if result is not None:
                             if result.get("choice_id") is not None:
